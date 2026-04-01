@@ -9,8 +9,9 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import {
   Users, Database, Tag, Upload, LogOut, Shield, Plus,
-  FileSpreadsheet, BarChart3, TrendingUp, CheckCircle
+  FileSpreadsheet, BarChart3, TrendingUp, CheckCircle, History
 } from "lucide-react";
+import * as XLSX from "xlsx";
 
 interface LeadStats {
   newLeads: number;
@@ -33,36 +34,45 @@ interface ProfileRow {
   company_name: string;
 }
 
+interface DownloadHistoryRow {
+  id: string;
+  user_id: string;
+  lead_count: number;
+  promo_code: string;
+  downloaded_at: string;
+  filters: Record<string, string> | null;
+  user_email?: string;
+  user_name?: string;
+}
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<LeadStats>({ newLeads: 0, soldLeads: 0 });
   const [totalUsers, setTotalUsers] = useState(0);
   const [promoCodes, setPromoCodes] = useState<PromoCodeRow[]>([]);
   const [promoCount, setPromoCount] = useState("1");
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const loadData = useCallback(async () => {
-    // Stats
     const { count: newCount } = await supabase.from("leads").select("*", { count: "exact", head: true }).eq("status", "new");
     const { count: soldCount } = await supabase.from("leads").select("*", { count: "exact", head: true }).eq("status", "sold");
     setStats({ newLeads: newCount || 0, soldLeads: soldCount || 0 });
 
-    // Users
     const { data: profileData, count: userCount } = await supabase
       .from("profiles")
       .select("full_name, mobile_number, email, company_name", { count: "exact" });
     setProfiles(profileData || []);
     setTotalUsers(userCount || 0);
 
-    // Promo codes
+    // Promo codes with user email resolution
     const { data: promoData } = await supabase
       .from("promo_codes")
       .select("*")
       .order("created_at", { ascending: false });
-    
-    // Resolve user emails for used promo codes
+
     const enriched: PromoCodeRow[] = [];
     for (const p of promoData || []) {
       let userEmail = "";
@@ -77,6 +87,27 @@ export default function AdminDashboard() {
       enriched.push({ ...p, user_email: userEmail });
     }
     setPromoCodes(enriched);
+
+    // Download history
+    const { data: historyData } = await supabase
+      .from("download_history")
+      .select("*")
+      .order("downloaded_at", { ascending: false });
+
+    const enrichedHistory: DownloadHistoryRow[] = [];
+    for (const h of (historyData as DownloadHistoryRow[]) || []) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("email, full_name")
+        .eq("user_id", h.user_id)
+        .single();
+      enrichedHistory.push({
+        ...h,
+        user_email: profile?.email || "Unknown",
+        user_name: profile?.full_name || "Unknown",
+      });
+    }
+    setDownloadHistory(enrichedHistory);
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -98,18 +129,13 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
+  const parseLeadsFromFile = async (file: File) => {
+    const ext = file.name.split(".").pop()?.toLowerCase();
 
-    try {
+    if (ext === "csv") {
       const text = await file.text();
       const lines = text.split("\n").filter(l => l.trim());
-      const header = lines[0].toLowerCase();
-      
-      // Parse CSV
-      const leads: { full_name: string; phone_number: string; city: string; state: string }[] = [];
+      const leads: { full_name: string; phone_number: string; city: string; state: string; gender: string }[] = [];
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(",").map(c => c.trim().replace(/^"|"$/g, ""));
         leads.push({
@@ -117,8 +143,34 @@ export default function AdminDashboard() {
           phone_number: cols[1] || "-",
           city: cols[2] || "-",
           state: cols[3] || "-",
+          gender: (cols[4] || "-").toLowerCase(),
         });
       }
+      return leads;
+    }
+
+    // Excel files
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: "-" });
+
+    return rows.map(row => ({
+      full_name: row["full_name"] || row["Full Name"] || row["name"] || "-",
+      phone_number: row["phone_number"] || row["Phone Number"] || row["phone"] || "-",
+      city: row["city"] || row["City"] || "-",
+      state: row["state"] || row["State"] || "-",
+      gender: (row["gender"] || row["Gender"] || "-").toLowerCase(),
+    }));
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+
+    try {
+      const leads = await parseLeadsFromFile(file);
 
       if (leads.length === 0) {
         toast({ title: "No data", description: "The file contains no lead data.", variant: "destructive" });
@@ -165,7 +217,6 @@ export default function AdminDashboard() {
       </header>
 
       <main className="container py-6">
-        {/* Stats */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4 mb-6">
           <StatCard icon={Users} label="Total Users" value={totalUsers} />
           <StatCard icon={Database} label="New Leads" value={stats.newLeads} />
@@ -175,7 +226,7 @@ export default function AdminDashboard() {
         </div>
 
         <Tabs defaultValue="leads" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3 h-12">
+          <TabsList className="grid w-full grid-cols-4 h-12">
             <TabsTrigger value="leads" className="text-xs md:text-sm">
               <Upload className="mr-1 h-4 w-4 hidden md:inline" />Leads
             </TabsTrigger>
@@ -184,6 +235,9 @@ export default function AdminDashboard() {
             </TabsTrigger>
             <TabsTrigger value="users" className="text-xs md:text-sm">
               <Users className="mr-1 h-4 w-4 hidden md:inline" />Users
+            </TabsTrigger>
+            <TabsTrigger value="history" className="text-xs md:text-sm">
+              <History className="mr-1 h-4 w-4 hidden md:inline" />History
             </TabsTrigger>
           </TabsList>
 
@@ -206,10 +260,10 @@ export default function AdminDashboard() {
                   <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-8 hover:border-primary/50 transition-colors">
                     <Upload className="h-8 w-8 text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">
-                      {uploading ? "Uploading..." : "Click to upload CSV file"}
+                      {uploading ? "Uploading..." : "Click to upload CSV or Excel file"}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      Columns: full_name, phone_number, city, state
+                      Columns: full_name, phone_number, city, state, gender
                     </span>
                     <input
                       type="file"
@@ -247,13 +301,12 @@ export default function AdminDashboard() {
                     Generate
                   </Button>
                 </div>
-
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {promoCodes.map((p) => (
                     <div key={p.id} className="flex flex-col gap-1 rounded-lg border p-3 text-sm">
                       <div className="flex items-center justify-between">
                         <code className="font-mono text-xs bg-secondary px-2 py-1 rounded">{p.code}</code>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${p.used_by ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}`}>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${p.used_by ? "bg-destructive/10 text-destructive" : "bg-green-100 text-green-700"}`}>
                           {p.used_by ? "Used" : "Available"}
                         </span>
                       </div>
@@ -294,6 +347,43 @@ export default function AdminDashboard() {
                   ))}
                   {profiles.length === 0 && (
                     <p className="text-center text-sm text-muted-foreground py-8">No users registered yet.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="history">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <History className="h-5 w-5 text-primary" />
+                  Download History
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {downloadHistory.map((h) => (
+                    <div key={h.id} className="rounded-lg border p-3 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{h.user_name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(h.downloaded_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <span>{h.lead_count} leads</span>
+                        <span>•</span>
+                        <span>{h.user_email}</span>
+                        <code className="bg-secondary px-1.5 py-0.5 rounded">{h.promo_code}</code>
+                        {h.filters && Object.entries(h.filters).map(([k, v]) => (
+                          <span key={k} className="bg-accent px-1.5 py-0.5 rounded">{k}: {v}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {downloadHistory.length === 0 && (
+                    <p className="text-center text-sm text-muted-foreground py-8">No downloads yet.</p>
                   )}
                 </div>
               </CardContent>
