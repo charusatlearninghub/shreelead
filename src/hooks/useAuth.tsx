@@ -15,9 +15,9 @@ async function fetchRole(userId: string): Promise<'admin' | 'user'> {
     const { data } = await supabase
       .from('user_roles')
       .select('role')
-      .eq('user_id', userId)
-      .maybeSingle();
-    return (data?.role as 'admin' | 'user') ?? 'user';
+      .eq('user_id', userId);
+    if (data && data.some(r => r.role === 'admin')) return 'admin';
+    return 'user';
   } catch {
     return 'user';
   }
