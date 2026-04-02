@@ -47,6 +47,7 @@ export type Database = {
           full_name: string
           gender: string
           id: string
+          language: string
           phone_number: string
           sold_at: string | null
           sold_to: string | null
@@ -59,6 +60,7 @@ export type Database = {
           full_name?: string
           gender?: string
           id?: string
+          language?: string
           phone_number?: string
           sold_at?: string | null
           sold_to?: string | null
@@ -71,6 +73,7 @@ export type Database = {
           full_name?: string
           gender?: string
           id?: string
+          language?: string
           phone_number?: string
           sold_at?: string | null
           sold_to?: string | null
@@ -115,6 +118,7 @@ export type Database = {
           code: string
           created_at: string
           id: string
+          is_used: boolean
           used_at: string | null
           used_by: string | null
         }
@@ -122,6 +126,7 @@ export type Database = {
           code: string
           created_at?: string
           id?: string
+          is_used?: boolean
           used_at?: string | null
           used_by?: string | null
         }
@@ -129,6 +134,7 @@ export type Database = {
           code?: string
           created_at?: string
           id?: string
+          is_used?: boolean
           used_at?: string | null
           used_by?: string | null
         }
@@ -165,6 +171,7 @@ export type Database = {
         Returns: boolean
       }
       make_admin_by_email: { Args: { admin_email: string }; Returns: undefined }
+      refresh_postgrest_schema_cache: { Args: Record<PropertyKey, never>; Returns: undefined }
     }
     Enums: {
       app_role: "admin" | "user"

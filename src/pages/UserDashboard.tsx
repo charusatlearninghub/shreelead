@@ -3,13 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { signOut } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { Download, Tag, LogOut, User, Filter, History } from "lucide-react";
+import { Download, Tag, LogOut, User, History } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -27,17 +26,23 @@ export default function UserDashboard() {
   const { user } = useAuth();
   const [leadCount, setLeadCount] = useState("");
   const [promoCode, setPromoCode] = useState("");
-  const [genderFilter, setGenderFilter] = useState("all");
-  const [cityFilter, setCityFilter] = useState("");
-  const [stateFilter, setStateFilter] = useState("");
+  const [genderFilter, setGenderFilter] = useState<"male" | "female" | "mix">("mix");
+  const [languageFilter, setLanguageFilter] = useState<"gujarati" | "hindi" | "mix">("mix");
+  const [availableLeads, setAvailableLeads] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [countingLeads, setCountingLeads] = useState(false);
   const [history, setHistory] = useState<DownloadRecord[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
     loadHistory();
+    countAvailableLeads("mix", "mix");
   }, []);
+
+  useEffect(() => {
+    countAvailableLeads(genderFilter, languageFilter);
+  }, [genderFilter, languageFilter]);
 
   const loadHistory = async () => {
     const { data } = await supabase
@@ -47,10 +52,49 @@ export default function UserDashboard() {
     setHistory((data as DownloadRecord[]) || []);
   };
 
+  const countAvailableLeads = async (gender: "male" | "female" | "mix", language: "gujarati" | "hindi" | "mix") => {
+    setCountingLeads(true);
+    try {
+      let query = supabase
+        .from("leads")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "new");
+
+      // Apply gender filter
+      if (gender !== "mix") {
+        query = query.eq("gender", gender);
+      }
+
+      // Apply language filter
+      if (language !== "mix") {
+        query = query.eq("language", language);
+      } else {
+        // For "mix", include both gujarati and hindi
+        query = query.in("language", ["gujarati", "hindi", "mix"]);
+      }
+
+      const { count } = await query;
+      setAvailableLeads(count || 0);
+    } catch (err) {
+      console.error("Error counting leads:", err);
+      setAvailableLeads(0);
+    } finally {
+      setCountingLeads(false);
+    }
+  };
+
   const handleDownload = async () => {
     const count = parseInt(leadCount);
     if (!count || count < 1) {
       toast({ title: "Invalid count", description: "Enter a valid number of leads.", variant: "destructive" });
+      return;
+    }
+    if (count > availableLeads) {
+      toast({ 
+        title: "Insufficient leads", 
+        description: `Requested number of leads exceeds the available leads. Available: ${availableLeads}`,
+        variant: "destructive" 
+      });
       return;
     }
     if (!promoCode.trim()) {
@@ -60,21 +104,32 @@ export default function UserDashboard() {
 
     setLoading(true);
     try {
-      // Validate promo code
-      const { data: promo, error: promoError } = await supabase
+      // First, check if promo code exists (don't filter by is_used yet)
+      const { data: allPromos, error: checkError } = await supabase
         .from("promo_codes")
         .select("*")
-        .eq("code", promoCode.trim())
-        .is("used_by", null)
-        .single();
+        .eq("code", promoCode.trim());
 
-      if (promoError || !promo) {
-        toast({ title: "Invalid promo code", description: "This promo code is invalid or already used.", variant: "destructive" });
+      if (checkError || !allPromos || allPromos.length === 0) {
+        toast({ title: "Invalid promo code", description: "The promo code does not exist.", variant: "destructive" });
         setLoading(false);
         return;
       }
 
-      // Build query with filters
+      const promo = allPromos[0];
+
+      // Check if the promo code has already been used
+      if (promo.is_used || promo.used_by !== null) {
+        toast({ 
+          title: "Promo code already used", 
+          description: "This promo code has already been used and cannot be reused.",
+          variant: "destructive" 
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Build query with gender and language filters
       let query = supabase
         .from("leads")
         .select("*")
@@ -82,14 +137,17 @@ export default function UserDashboard() {
         .order("uploaded_at", { ascending: false })
         .limit(count);
 
-      if (genderFilter !== "all") {
+      // Apply gender filter
+      if (genderFilter !== "mix") {
         query = query.eq("gender", genderFilter);
       }
-      if (cityFilter.trim()) {
-        query = query.ilike("city", `%${cityFilter.trim()}%`);
-      }
-      if (stateFilter.trim()) {
-        query = query.ilike("state", `%${stateFilter.trim()}%`);
+
+      // Apply language filter
+      if (languageFilter !== "mix") {
+        query = query.eq("language", languageFilter);
+      } else {
+        // For "mix", include both gujarati and hindi
+        query = query.in("language", ["gujarati", "hindi", "mix"]);
       }
 
       const { data: leads, error: leadsError } = await query;
@@ -100,11 +158,21 @@ export default function UserDashboard() {
         return;
       }
 
-      // Mark promo as used
-      await supabase
+      // Mark promo as used - set both is_used flag and tracking fields
+      const { error: updatePromoError } = await supabase
         .from("promo_codes")
-        .update({ used_by: user!.id, used_at: new Date().toISOString() })
+        .update({ 
+          is_used: true,
+          used_by: user!.id, 
+          used_at: new Date().toISOString() 
+        })
         .eq("id", promo.id);
+
+      if (updatePromoError) {
+        toast({ title: "Error", description: "Failed to mark promo code as used.", variant: "destructive" });
+        setLoading(false);
+        return;
+      }
 
       // Mark leads as sold
       const leadIds = leads.map(l => l.id);
@@ -117,21 +185,28 @@ export default function UserDashboard() {
 
       // Save download history
       const filters: Record<string, string> = {};
-      if (genderFilter !== "all") filters.gender = genderFilter;
-      if (cityFilter.trim()) filters.city = cityFilter.trim();
-      if (stateFilter.trim()) filters.state = stateFilter.trim();
+      if (genderFilter !== "mix") {
+        filters.gender = genderFilter;
+      } else {
+        filters.gender = "mix";
+      }
+      if (languageFilter !== "mix") {
+        filters.language = languageFilter;
+      } else {
+        filters.language = "mix";
+      }
 
       await supabase.from("download_history").insert({
         user_id: user!.id,
         lead_count: leads.length,
         promo_code: promoCode.trim(),
-        filters: Object.keys(filters).length > 0 ? filters : null,
+        filters: filters,
       });
 
       // Generate CSV
-      const csvHeader = "full_name,phone_number,city,state,gender\n";
+      const csvHeader = "full_name,phone_number,city,state,gender,language\n";
       const csvRows = leads.map(l =>
-        `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${(l as any).gender || '-'}"`
+        `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${(l as any).gender || '-'}","${(l as any).language || '-'}"`
       ).join("\n");
       const csv = csvHeader + csvRows;
 
@@ -147,8 +222,10 @@ export default function UserDashboard() {
       setLeadCount("");
       setPromoCode("");
       loadHistory();
-    } catch {
-      toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
+      countAvailableLeads(languageFilter);
+    } catch (err) {
+      console.error("Download error:", err);
+      toast({ title: "Error", description: "Something went wrong during download.", variant: "destructive" });
     }
     setLoading(false);
   };
@@ -199,64 +276,89 @@ export default function UserDashboard() {
                 Download Leads
               </CardTitle>
               <CardDescription>
-                Enter the number of leads, apply filters, and use your promo code
+                Select a language, enter lead count, and use your promo code
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              {/* Gender Filter Section */}
+              <div className="space-y-3 rounded-lg border p-4">
+                <Label className="block text-sm font-medium">Lead Gender</Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+                  <Button
+                    onClick={() => setGenderFilter("male")}
+                    variant={genderFilter === "male" ? "default" : "outline"}
+                    className="flex-1 h-12 text-base font-medium"
+                  >
+                    Male
+                  </Button>
+                  <Button
+                    onClick={() => setGenderFilter("female")}
+                    variant={genderFilter === "female" ? "default" : "outline"}
+                    className="flex-1 h-12 text-base font-medium"
+                  >
+                    Female
+                  </Button>
+                  <Button
+                    onClick={() => setGenderFilter("mix")}
+                    variant={genderFilter === "mix" ? "default" : "outline"}
+                    className="flex-1 h-12 text-base font-medium"
+                  >
+                    Mix
+                  </Button>
+                </div>
+              </div>
+
+              {/* Language Filter Section */}
+              <div className="space-y-3 rounded-lg border p-4">
+                <Label className="block text-sm font-medium">Lead Language</Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+                  <Button
+                    onClick={() => setLanguageFilter("gujarati")}
+                    variant={languageFilter === "gujarati" ? "default" : "outline"}
+                    className="flex-1 h-12 text-base font-medium"
+                  >
+                    Gujarati
+                  </Button>
+                  <Button
+                    onClick={() => setLanguageFilter("hindi")}
+                    variant={languageFilter === "hindi" ? "default" : "outline"}
+                    className="flex-1 h-12 text-base font-medium"
+                  >
+                    Hindi
+                  </Button>
+                  <Button
+                    onClick={() => setLanguageFilter("mix")}
+                    variant={languageFilter === "mix" ? "default" : "outline"}
+                    className="flex-1 h-12 text-base font-medium"
+                  >
+                    Mix
+                  </Button>
+                </div>
+              </div>
+
+              {/* Available Leads Counter */}
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-3">
+                <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                  Available Leads: <span className="text-lg font-bold">{countingLeads ? "..." : availableLeads}</span>
+                </p>
+              </div>
+
+              {/* Number of Leads Input */}
               <div className="space-y-2">
                 <Label htmlFor="leadCount">Number of Leads</Label>
                 <Input
                   id="leadCount"
                   type="number"
                   min="1"
-                  placeholder="e.g. 10"
+                  max={availableLeads}
+                  placeholder={`e.g. 10 (max: ${availableLeads})`}
                   value={leadCount}
                   onChange={(e) => setLeadCount(e.target.value)}
                   className="h-12 text-base"
                 />
               </div>
 
-              {/* Filters */}
-              <div className="space-y-3 rounded-lg border p-4">
-                <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <Filter className="h-4 w-4" />
-                  Filters (optional)
-                </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Gender</Label>
-                    <Select value={genderFilter} onValueChange={setGenderFilter}>
-                      <SelectTrigger className="h-10">
-                        <SelectValue placeholder="All" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        <SelectItem value="male">Male</SelectItem>
-                        <SelectItem value="female">Female</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">City</Label>
-                    <Input
-                      placeholder="Any city"
-                      value={cityFilter}
-                      onChange={(e) => setCityFilter(e.target.value)}
-                      className="h-10"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">State</Label>
-                    <Input
-                      placeholder="Any state"
-                      value={stateFilter}
-                      onChange={(e) => setStateFilter(e.target.value)}
-                      className="h-10"
-                    />
-                  </div>
-                </div>
-              </div>
-
+              {/* Promo Code Input */}
               <div className="space-y-2">
                 <Label htmlFor="promoCode">Promo Code</Label>
                 <div className="relative">
@@ -270,9 +372,11 @@ export default function UserDashboard() {
                   />
                 </div>
               </div>
+
+              {/* Download Button */}
               <Button
                 onClick={handleDownload}
-                disabled={loading}
+                disabled={loading || availableLeads === 0}
                 className="w-full h-12 text-base"
               >
                 <Download className="mr-2 h-5 w-5" />

@@ -7,8 +7,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { signOut } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import {
-  Users, Database, Tag, Upload, LogOut, Shield, Plus,
+  Users, Database, Tag, Upload, LogOut, Shield, Plus, Trash2,
   FileSpreadsheet, BarChart3, TrendingUp, CheckCircle, History
 } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -25,10 +26,25 @@ interface LeadStats {
 interface PromoCodeRow {
   id: string;
   code: string;
+  is_used: boolean;
   used_by: string | null;
   used_at: string | null;
   created_at: string;
   user_email?: string;
+}
+
+interface UploadLeadRow {
+  full_name: string;
+  phone_number: string;
+  city: string;
+  state: string;
+  gender: string;
+  language: string;
+}
+
+interface ParsedUploadResult {
+  leads: UploadLeadRow[];
+  missingColumns: string[];
 }
 
 interface ProfileRow {
@@ -57,8 +73,10 @@ export default function AdminDashboard() {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryRow[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { role } = useAuth();
 
   const loadData = useCallback(async () => {
     const { count: newCount } = await supabase.from("leads").select("*", { count: "exact", head: true }).eq("status", "new");
@@ -133,24 +151,106 @@ export default function AdminDashboard() {
     }
   };
 
-  const parseLeadsFromFile = async (file: File) => {
+  const isSchemaCacheError = (message?: string) => {
+    const lower = (message || "").toLowerCase();
+    return lower.includes("schema cache") ||
+      lower.includes("could not find the 'language' column") ||
+      lower.includes("could not find the 'gender' column");
+  };
+
+  const normalizeGender = (value?: string) => {
+    const normalized = (value || "mix").trim().toLowerCase();
+    return normalized === "male" || normalized === "female" || normalized === "mix"
+      ? normalized
+      : "mix";
+  };
+
+  const normalizeLanguage = (value?: string) => {
+    const normalized = (value || "mix").trim().toLowerCase();
+    return normalized === "gujarati" || normalized === "hindi" || normalized === "mix"
+      ? normalized
+      : "mix";
+  };
+
+  const sanitizeTextField = (value?: string) => {
+    const normalized = (value || "").trim();
+    return normalized.length > 0 ? normalized : "-";
+  };
+
+  const refreshLeadsSchemaCache = async () => {
+    await supabase.rpc("refresh_postgrest_schema_cache");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  };
+
+  const validateLeadsSchemaColumns = async () => {
+    const requiredColumns = "full_name,phone_number,city,state,gender,language";
+    const { error } = await supabase
+      .from("leads")
+      .select(requiredColumns)
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+  };
+
+  const ensureLeadsSchemaReady = async () => {
+    try {
+      await validateLeadsSchemaColumns();
+    } catch (err) {
+      const error = err as { message?: string };
+      if (!isSchemaCacheError(error?.message)) {
+        throw err;
+      }
+
+      await refreshLeadsSchemaCache();
+      await validateLeadsSchemaColumns();
+    }
+  };
+
+  const parseLeadsFromFile = async (file: File): Promise<ParsedUploadResult> => {
+    const requiredColumns = ["full_name", "phone_number", "city", "state", "gender", "language"];
     const ext = file.name.split(".").pop()?.toLowerCase();
 
     if (ext === "csv") {
       const text = await file.text();
       const lines = text.split("\n").filter(l => l.trim());
-      const leads: { full_name: string; phone_number: string; city: string; state: string; gender: string }[] = [];
+      if (lines.length < 2) {
+        return { leads: [], missingColumns: requiredColumns };
+      }
+
+      const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase());
+      const findHeaderIndex = (aliases: string[]) => headers.findIndex((h) => aliases.includes(h));
+
+      const fullNameIdx = findHeaderIndex(["full_name", "full name", "name"]);
+      const phoneIdx = findHeaderIndex(["phone_number", "phone number", "phone"]);
+      const cityIdx = findHeaderIndex(["city"]);
+      const stateIdx = findHeaderIndex(["state"]);
+      const genderIdx = findHeaderIndex(["gender"]);
+      const languageIdx = findHeaderIndex(["language"]);
+
+      const missingColumns = requiredColumns.filter((column) => {
+        if (column === "full_name") return fullNameIdx < 0;
+        if (column === "phone_number") return phoneIdx < 0;
+        if (column === "city") return cityIdx < 0;
+        if (column === "state") return stateIdx < 0;
+        if (column === "gender") return genderIdx < 0;
+        return languageIdx < 0;
+      });
+
+      const leads: UploadLeadRow[] = [];
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(",").map(c => c.trim().replace(/^"|"$/g, ""));
         leads.push({
-          full_name: cols[0] || "-",
-          phone_number: cols[1] || "-",
-          city: cols[2] || "-",
-          state: cols[3] || "-",
-          gender: (cols[4] || "-").toLowerCase(),
+          full_name: fullNameIdx >= 0 ? sanitizeTextField(cols[fullNameIdx]) : "-",
+          phone_number: phoneIdx >= 0 ? sanitizeTextField(cols[phoneIdx]) : "-",
+          city: cityIdx >= 0 ? sanitizeTextField(cols[cityIdx]) : "-",
+          state: stateIdx >= 0 ? sanitizeTextField(cols[stateIdx]) : "-",
+          gender: normalizeGender(genderIdx >= 0 ? cols[genderIdx] : "mix"),
+          language: normalizeLanguage(languageIdx >= 0 ? cols[languageIdx] : "mix"),
         });
       }
-      return leads;
+      return { leads, missingColumns };
     }
 
     // Excel files
@@ -159,13 +259,26 @@ export default function AdminDashboard() {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: "-" });
 
-    return rows.map(row => ({
-      full_name: row["full_name"] || row["Full Name"] || row["name"] || "-",
-      phone_number: row["phone_number"] || row["Phone Number"] || row["phone"] || "-",
-      city: row["city"] || row["City"] || "-",
-      state: row["state"] || row["State"] || "-",
-      gender: (row["gender"] || row["Gender"] || "-").toLowerCase(),
+    const sampleRow = rows[0] || {};
+    const missingColumns = requiredColumns.filter((column) => {
+      if (column === "full_name") return !("full_name" in sampleRow || "Full Name" in sampleRow || "name" in sampleRow);
+      if (column === "phone_number") return !("phone_number" in sampleRow || "Phone Number" in sampleRow || "phone" in sampleRow);
+      if (column === "city") return !("city" in sampleRow || "City" in sampleRow);
+      if (column === "state") return !("state" in sampleRow || "State" in sampleRow);
+      if (column === "gender") return !("gender" in sampleRow || "Gender" in sampleRow);
+      return !("language" in sampleRow || "Language" in sampleRow);
+    });
+
+    const leads = rows.map((row): UploadLeadRow => ({
+      full_name: sanitizeTextField(row["full_name"] || row["Full Name"] || row["name"] || "-"),
+      phone_number: sanitizeTextField(row["phone_number"] || row["Phone Number"] || row["phone"] || "-"),
+      city: sanitizeTextField(row["city"] || row["City"] || "-"),
+      state: sanitizeTextField(row["state"] || row["State"] || "-"),
+      gender: normalizeGender(row["gender"] || row["Gender"] || "mix"),
+      language: normalizeLanguage(row["language"] || row["Language"] || "mix"),
     }));
+
+    return { leads, missingColumns };
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -174,7 +287,7 @@ export default function AdminDashboard() {
     setUploading(true);
 
     try {
-      const leads = await parseLeadsFromFile(file);
+      const { leads, missingColumns } = await parseLeadsFromFile(file);
 
       if (leads.length === 0) {
         toast({ title: "No data", description: "The file contains no lead data.", variant: "destructive" });
@@ -182,15 +295,48 @@ export default function AdminDashboard() {
         return;
       }
 
-      const { error } = await supabase.from("leads").insert(leads);
+      if (missingColumns.length > 0) {
+        console.info("Upload missing columns were auto-filled with defaults:", missingColumns);
+      }
+
+      await ensureLeadsSchemaReady();
+
+      const safeMappedLeads: UploadLeadRow[] = leads.map((row) => ({
+        full_name: sanitizeTextField(row.full_name),
+        phone_number: sanitizeTextField(row.phone_number),
+        city: sanitizeTextField(row.city),
+        state: sanitizeTextField(row.state),
+        gender: normalizeGender(row.gender),
+        language: normalizeLanguage(row.language),
+      }));
+
+      let { error } = await supabase.from("leads").insert(safeMappedLeads);
+
+      if (error && isSchemaCacheError(error.message)) {
+        await refreshLeadsSchemaCache();
+        const retry = await supabase.from("leads").insert(safeMappedLeads);
+        error = retry.error;
+      }
+
       if (error) {
+        console.error("Lead upload database error:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
         toast({ title: "Upload error", description: error.message, variant: "destructive" });
       } else {
-        toast({ title: "Uploaded!", description: `${leads.length} leads added to New Data.` });
+        toast({
+          title: "Success",
+          description: `Leads uploaded successfully. Total Leads Uploaded: ${safeMappedLeads.length}`,
+        });
         loadData();
       }
-    } catch {
-      toast({ title: "Error", description: "Failed to parse file.", variant: "destructive" });
+    } catch (err) {
+      console.error("Lead upload failed:", err);
+      const message = err instanceof Error ? err.message : "Failed to upload leads.";
+      toast({ title: "Error", description: message, variant: "destructive" });
     }
     setUploading(false);
     e.target.value = "";
@@ -199,6 +345,41 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     await signOut();
     navigate("/login");
+  };
+
+  const handleClearAllLeadData = async () => {
+    if (role !== 'admin') {
+      toast({ title: "Error", description: "You don't have permission to clear lead data.", variant: "destructive" });
+      return;
+    }
+
+    setClearing(true);
+    try {
+      // Delete all leads with either status (covers all records without UUID issues)
+      const { error } = await supabase
+        .from("leads")
+        .delete()
+        .in("status", ["new", "sold"]);
+      
+      if (error) {
+        toast({ title: "Error", description: `Failed to delete leads: ${error.message}`, variant: "destructive" });
+        setClearing(false);
+        return;
+      }
+
+      // Reset stats
+      setStats({ newLeads: 0, soldLeads: 0 });
+      toast({ title: "Success", description: "All lead data has been successfully removed." });
+      
+      // Reload data to ensure consistency
+      await loadData();
+    } catch (err) {
+      console.error("Clear lead data error:", err);
+      const errorMsg = err instanceof Error ? err.message : "Failed to clear lead data.";
+      toast({ title: "Error", description: errorMsg, variant: "destructive" });
+    } finally {
+      setClearing(false);
+    }
   };
 
   const promoUsedCount = promoCodes.filter(p => p.used_by).length;
@@ -262,10 +443,41 @@ export default function AdminDashboard() {
           <TabsContent value="leads">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <FileSpreadsheet className="h-5 w-5 text-primary" />
-                  Upload Lead Data
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <FileSpreadsheet className="h-5 w-5 text-primary" />
+                    Upload Lead Data
+                  </CardTitle>
+                  {role === 'admin' && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" size="sm" className="gap-2">
+                          <Trash2 className="h-4 w-4" />
+                          <span className="hidden sm:inline">Clear All Lead Data</span>
+                          <span className="sm:hidden">Clear Data</span>
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete All Lead Data?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete all lead data? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={handleClearAllLeadData}
+                            disabled={clearing}
+                            className="bg-destructive hover:bg-destructive/90"
+                          >
+                            {clearing ? "Clearing..." : "Delete All"}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -281,7 +493,7 @@ export default function AdminDashboard() {
                       {uploading ? "Uploading..." : "Click to upload CSV or Excel file"}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      Columns: full_name, phone_number, city, state, gender
+                      Columns: full_name, phone_number, city, state, gender, language (, optional: gujarati/hindi/mix)
                     </span>
                     <input
                       type="file"
@@ -322,15 +534,27 @@ export default function AdminDashboard() {
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {promoCodes.map((p) => (
                     <div key={p.id} className="flex flex-col gap-1 rounded-lg border p-3 text-sm">
-                      <div className="flex items-center justify-between">
-                        <code className="font-mono text-xs bg-secondary px-2 py-1 rounded">{p.code}</code>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${p.used_by ? "bg-destructive/10 text-destructive" : "bg-green-100 text-green-700"}`}>
-                          {p.used_by ? "Used" : "Available"}
+                      <div className="flex items-center justify-between gap-2">
+                        <code className="font-mono text-xs bg-secondary px-2 py-1 rounded truncate">{p.code}</code>
+                        <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 ${p.used_by || p.is_used ? "bg-destructive/10 text-destructive" : "bg-green-100 text-green-700"}`}>
+                          {p.used_by || p.is_used ? "Used" : "Available"}
                         </span>
                       </div>
-                      {p.used_by && (
+                      {(p.used_by || p.is_used) && (
+                        <div className="text-xs text-muted-foreground space-y-0.5">
+                          <p>
+                            Used by: <span className="font-medium">{p.user_email || "Unknown User"}</span>
+                          </p>
+                          <p>
+                            Used at: <span className="font-medium">
+                              {p.used_at ? new Date(p.used_at).toLocaleString() : "Unknown"}
+                            </span>
+                          </p>
+                        </div>
+                      )}
+                      {!p.used_by && !p.is_used && (
                         <p className="text-xs text-muted-foreground">
-                          Used by {p.user_email} on {new Date(p.used_at!).toLocaleDateString()}
+                          Created: {new Date(p.created_at).toLocaleString()}
                         </p>
                       )}
                     </div>
