@@ -12,6 +12,10 @@ import {
   FileSpreadsheet, BarChart3, TrendingUp, CheckCircle, History
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface LeadStats {
   newLeads: number;
