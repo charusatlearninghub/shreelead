@@ -32,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let mounted = true;
 
     // Set up listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       if (!session?.user) {
         setUser(null);
@@ -41,11 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       setUser(session.user);
-      const userRole = await fetchRole(session.user.id);
-      if (mounted) {
-        setRole(userRole);
-        setLoading(false);
-      }
+      // Fetch role separately without blocking the auth state change callback
+      setTimeout(async () => {
+        const userRole = await fetchRole(session.user.id);
+        if (mounted) {
+          setRole(userRole);
+          setLoading(false);
+        }
+      }, 0);
     });
 
     // Then check existing session
