@@ -15,6 +15,7 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [company, setCompany] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
