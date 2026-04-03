@@ -110,15 +110,19 @@ export default function AdminDashboard() {
     const enriched: PromoCodeRow[] = [];
     for (const p of promoData || []) {
       let userEmail = "";
+      let userName = "";
+      let companyName = "";
       if (p.used_by) {
         const { data: profile } = await supabase
           .from("profiles")
-          .select("email")
+          .select("email, full_name, company_name")
           .eq("user_id", p.used_by)
           .single();
         userEmail = profile?.email || "Unknown";
+        userName = profile?.full_name || "Unknown";
+        companyName = profile?.company_name || "-";
       }
-      enriched.push({ ...p, user_email: userEmail });
+      enriched.push({ ...p, user_email: userEmail, user_name: userName, company_name: companyName });
     }
     setPromoCodes(enriched);
 
