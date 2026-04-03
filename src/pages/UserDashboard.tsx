@@ -119,7 +119,7 @@ export default function UserDashboard() {
       const promo = allPromos[0];
 
       // Check if the promo code has already been used
-      if (promo.used_by !== null) {
+      if (promo.is_used || promo.used_by !== null) {
         toast({ 
           title: "Promo code already used", 
           description: "This promo code has already been used and cannot be reused.",

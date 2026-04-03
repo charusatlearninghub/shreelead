@@ -27,10 +27,13 @@ interface LeadStats {
 interface PromoCodeRow {
   id: string;
   code: string;
+  is_used: boolean;
   used_by: string | null;
   used_at: string | null;
   created_at: string;
   user_email?: string;
+  user_name?: string;
+  company_name?: string;
 }
 
 interface ProfileRow {
@@ -107,15 +110,19 @@ export default function AdminDashboard() {
     const enriched: PromoCodeRow[] = [];
     for (const p of promoData || []) {
       let userEmail = "";
+      let userName = "";
+      let companyName = "";
       if (p.used_by) {
         const { data: profile } = await supabase
           .from("profiles")
-          .select("email")
+          .select("email, full_name, company_name")
           .eq("user_id", p.used_by)
           .single();
         userEmail = profile?.email || "Unknown";
+        userName = profile?.full_name || "Unknown";
+        companyName = profile?.company_name || "-";
       }
-      enriched.push({ ...p, user_email: userEmail });
+      enriched.push({ ...p, user_email: userEmail, user_name: userName, company_name: companyName });
     }
     setPromoCodes(enriched);
 
@@ -156,6 +163,15 @@ export default function AdminDashboard() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "Success", description: `Generated ${count} promo code(s).` });
+      loadData();
+    }
+  };
+  const deletePromoCode = async (id: string) => {
+    const { error } = await supabase.from("promo_codes").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Deleted", description: "Promo code deleted." });
       loadData();
     }
   };
@@ -689,28 +705,47 @@ export default function AdminDashboard() {
                     Generate
                   </Button>
                 </div>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
+                <div className="space-y-2 max-h-[500px] overflow-y-auto">
                   {promoCodes.map((p) => (
-                    <div key={p.id} className="flex flex-col gap-1 rounded-lg border p-3 text-sm">
-                      <div className="flex items-center justify-between gap-2">
+                    <div key={p.id} className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
                         <code className="font-mono text-xs bg-secondary px-2 py-1 rounded truncate">{p.code}</code>
-                        <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 ${p.used_by ? "bg-destructive/10 text-destructive" : "bg-green-100 text-green-700"}`}>
-                          {p.used_by ? "Used" : "Available"}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.is_used ? "bg-destructive/10 text-destructive" : "bg-accent/20 text-accent-foreground"}`}>
+                            {p.is_used ? "Used" : "Available"}
+                          </span>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Promo Code</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete this promo code? This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => deletePromoCode(p.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                       </div>
-                      {(p.used_by) && (
-                        <div className="text-xs text-muted-foreground space-y-0.5">
-                          <p>
-                            Used by: <span className="font-medium">{p.user_email || "Unknown User"}</span>
-                          </p>
-                          <p>
-                            Used at: <span className="font-medium">
-                              {p.used_at ? new Date(p.used_at).toLocaleString() : "Unknown"}
-                            </span>
-                          </p>
+                      {p.is_used && (
+                        <div className="text-xs text-muted-foreground space-y-0.5 border-t pt-2">
+                          <p>Used by: <span className="font-medium">{p.user_name || "Unknown"}</span></p>
+                          <p>Email: <span className="font-medium">{p.user_email || "Unknown"}</span></p>
+                          <p>Company: <span className="font-medium">{p.company_name || "-"}</span></p>
+                          <p>Used at: <span className="font-medium">{p.used_at ? new Date(p.used_at).toLocaleString() : "Unknown"}</span></p>
                         </div>
                       )}
-                      {!p.used_by && (
+                      {!p.is_used && (
                         <p className="text-xs text-muted-foreground">
                           Created: {new Date(p.created_at).toLocaleString()}
                         </p>
