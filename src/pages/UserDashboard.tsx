@@ -162,10 +162,9 @@ export default function UserDashboard() {
       const { error: updatePromoError } = await supabase
         .from("promo_codes")
         .update({ 
-          is_used: true,
           used_by: user!.id, 
           used_at: new Date().toISOString() 
-        })
+        } as any)
         .eq("id", promo.id);
 
       if (updatePromoError) {
