@@ -164,7 +164,7 @@ export default function UserDashboard() {
         .update({ 
           used_by: user!.id, 
           used_at: new Date().toISOString() 
-        } as any)
+        })
         .eq("id", promo.id);
 
       if (updatePromoError) {
