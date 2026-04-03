@@ -47,6 +47,7 @@ export type Database = {
           full_name: string
           gender: string
           id: string
+          language: string
           phone_number: string
           sold_at: string | null
           sold_to: string | null
@@ -59,6 +60,7 @@ export type Database = {
           full_name?: string
           gender?: string
           id?: string
+          language?: string
           phone_number?: string
           sold_at?: string | null
           sold_to?: string | null
@@ -71,6 +73,7 @@ export type Database = {
           full_name?: string
           gender?: string
           id?: string
+          language?: string
           phone_number?: string
           sold_at?: string | null
           sold_to?: string | null
