@@ -104,30 +104,19 @@ export default function UserDashboard() {
 
     setLoading(true);
     try {
-      // First, check if promo code exists (don't filter by is_used yet)
+      // Check if promo code exists and is available (RLS only returns unused codes)
       const { data: allPromos, error: checkError } = await supabase
         .from("promo_codes")
         .select("*")
         .eq("code", promoCode.trim());
 
       if (checkError || !allPromos || allPromos.length === 0) {
-        toast({ title: "Invalid promo code", description: "The promo code does not exist.", variant: "destructive" });
+        toast({ title: "Invalid or used promo code", description: "This promo code does not exist or has already been used.", variant: "destructive" });
         setLoading(false);
         return;
       }
 
       const promo = allPromos[0];
-
-      // Check if the promo code has already been used
-      if (promo.is_used || promo.used_by !== null) {
-        toast({ 
-          title: "Promo code already used", 
-          description: "This promo code has already been used and cannot be reused.",
-          variant: "destructive" 
-        });
-        setLoading(false);
-        return;
-      }
 
       // Build query with gender and language filters
       let query = supabase
@@ -162,13 +151,13 @@ export default function UserDashboard() {
       const { error: updatePromoError } = await supabase
         .from("promo_codes")
         .update({ 
-          is_used: true,
           used_by: user!.id, 
           used_at: new Date().toISOString() 
         })
         .eq("id", promo.id);
 
       if (updatePromoError) {
+        console.error("Promo update error:", updatePromoError);
         toast({ title: "Error", description: "Failed to mark promo code as used.", variant: "destructive" });
         setLoading(false);
         return;
