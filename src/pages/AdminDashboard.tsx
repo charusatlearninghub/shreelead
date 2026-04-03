@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { signOut } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
@@ -10,9 +11,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Users, Database, Tag, Upload, LogOut, Shield, Plus, Trash2,
-  FileSpreadsheet, BarChart3, TrendingUp, CheckCircle, History
+  FileSpreadsheet, BarChart3, TrendingUp, CheckCircle, History, Loader2
 } from "lucide-react";
-import * as XLSX from "xlsx";
+import { buildLeadInsertPayload, normalizeGender, normalizeLanguage, parseLeadsFromFile } from "@/lib/leadUpload";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -33,20 +34,6 @@ interface PromoCodeRow {
   user_email?: string;
 }
 
-interface UploadLeadRow {
-  full_name: string;
-  phone_number: string;
-  city: string;
-  state: string;
-  gender: string;
-  language: string;
-}
-
-interface ParsedUploadResult {
-  leads: UploadLeadRow[];
-  missingColumns: string[];
-}
-
 interface ProfileRow {
   full_name: string;
   mobile_number: string;
@@ -65,6 +52,17 @@ interface DownloadHistoryRow {
   user_name?: string;
 }
 
+interface ManualLeadForm {
+  fullName: string;
+  phoneNumber: string;
+  city: string;
+  state: string;
+  gender: "male" | "female" | "mix";
+  language: "gujarati" | "hindi" | "mix";
+}
+
+const LEADS_TABLE = "leads" as const;
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState<LeadStats>({ newLeads: 0, soldLeads: 0 });
   const [totalUsers, setTotalUsers] = useState(0);
@@ -73,14 +71,26 @@ export default function AdminDashboard() {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryRow[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState("Idle");
+  const [manualSubmitting, setManualSubmitting] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [uploadSummary, setUploadSummary] = useState<{ total: number; uploaded: number; skipped: number } | null>(null);
+  const [manualLead, setManualLead] = useState<ManualLeadForm>({
+    fullName: "",
+    phoneNumber: "",
+    city: "",
+    state: "",
+    gender: "male",
+    language: "mix",
+  });
   const navigate = useNavigate();
   const { toast } = useToast();
   const { role } = useAuth();
 
   const loadData = useCallback(async () => {
-    const { count: newCount } = await supabase.from("leads").select("*", { count: "exact", head: true }).eq("status", "new");
-    const { count: soldCount } = await supabase.from("leads").select("*", { count: "exact", head: true }).eq("status", "sold");
+    const { count: newCount } = await supabase.from(LEADS_TABLE).select("*", { count: "exact", head: true }).eq("status", "new");
+    const { count: soldCount } = await supabase.from(LEADS_TABLE).select("*", { count: "exact", head: true }).eq("status", "sold");
     setStats({ newLeads: newCount || 0, soldLeads: soldCount || 0 });
 
     const { data: profileData, count: userCount } = await supabase
@@ -158,25 +168,6 @@ export default function AdminDashboard() {
       lower.includes("could not find the 'gender' column");
   };
 
-  const normalizeGender = (value?: string) => {
-    const normalized = (value || "mix").trim().toLowerCase();
-    return normalized === "male" || normalized === "female" || normalized === "mix"
-      ? normalized
-      : "mix";
-  };
-
-  const normalizeLanguage = (value?: string) => {
-    const normalized = (value || "mix").trim().toLowerCase();
-    return normalized === "gujarati" || normalized === "hindi" || normalized === "mix"
-      ? normalized
-      : "mix";
-  };
-
-  const sanitizeTextField = (value?: string) => {
-    const normalized = (value || "").trim();
-    return normalized.length > 0 ? normalized : "-";
-  };
-
   const refreshLeadsSchemaCache = async () => {
     await supabase.rpc("refresh_postgrest_schema_cache");
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -185,7 +176,7 @@ export default function AdminDashboard() {
   const validateLeadsSchemaColumns = async () => {
     const requiredColumns = "full_name,phone_number,city,state,gender,language";
     const { error } = await supabase
-      .from("leads")
+      .from(LEADS_TABLE)
       .select(requiredColumns)
       .limit(1);
 
@@ -208,138 +199,226 @@ export default function AdminDashboard() {
     }
   };
 
-  const parseLeadsFromFile = async (file: File): Promise<ParsedUploadResult> => {
-    const requiredColumns = ["full_name", "phone_number", "city", "state", "gender", "language"];
-    const ext = file.name.split(".").pop()?.toLowerCase();
-
-    if (ext === "csv") {
-      const text = await file.text();
-      const lines = text.split("\n").filter(l => l.trim());
-      if (lines.length < 2) {
-        return { leads: [], missingColumns: requiredColumns };
-      }
-
-      const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase());
-      const findHeaderIndex = (aliases: string[]) => headers.findIndex((h) => aliases.includes(h));
-
-      const fullNameIdx = findHeaderIndex(["full_name", "full name", "name"]);
-      const phoneIdx = findHeaderIndex(["phone_number", "phone number", "phone"]);
-      const cityIdx = findHeaderIndex(["city"]);
-      const stateIdx = findHeaderIndex(["state"]);
-      const genderIdx = findHeaderIndex(["gender"]);
-      const languageIdx = findHeaderIndex(["language"]);
-
-      const missingColumns = requiredColumns.filter((column) => {
-        if (column === "full_name") return fullNameIdx < 0;
-        if (column === "phone_number") return phoneIdx < 0;
-        if (column === "city") return cityIdx < 0;
-        if (column === "state") return stateIdx < 0;
-        if (column === "gender") return genderIdx < 0;
-        return languageIdx < 0;
-      });
-
-      const leads: UploadLeadRow[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(",").map(c => c.trim().replace(/^"|"$/g, ""));
-        leads.push({
-          full_name: fullNameIdx >= 0 ? sanitizeTextField(cols[fullNameIdx]) : "-",
-          phone_number: phoneIdx >= 0 ? sanitizeTextField(cols[phoneIdx]) : "-",
-          city: cityIdx >= 0 ? sanitizeTextField(cols[cityIdx]) : "-",
-          state: stateIdx >= 0 ? sanitizeTextField(cols[stateIdx]) : "-",
-          gender: normalizeGender(genderIdx >= 0 ? cols[genderIdx] : "mix"),
-          language: normalizeLanguage(languageIdx >= 0 ? cols[languageIdx] : "mix"),
-        });
-      }
-      return { leads, missingColumns };
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (uploading) {
+      return;
     }
 
-    // Excel files
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: "array" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json<Record<string, string>>(sheet, { defval: "-" });
-
-    const sampleRow = rows[0] || {};
-    const missingColumns = requiredColumns.filter((column) => {
-      if (column === "full_name") return !("full_name" in sampleRow || "Full Name" in sampleRow || "name" in sampleRow);
-      if (column === "phone_number") return !("phone_number" in sampleRow || "Phone Number" in sampleRow || "phone" in sampleRow);
-      if (column === "city") return !("city" in sampleRow || "City" in sampleRow);
-      if (column === "state") return !("state" in sampleRow || "State" in sampleRow);
-      if (column === "gender") return !("gender" in sampleRow || "Gender" in sampleRow);
-      return !("language" in sampleRow || "Language" in sampleRow);
-    });
-
-    const leads = rows.map((row): UploadLeadRow => ({
-      full_name: sanitizeTextField(row["full_name"] || row["Full Name"] || row["name"] || "-"),
-      phone_number: sanitizeTextField(row["phone_number"] || row["Phone Number"] || row["phone"] || "-"),
-      city: sanitizeTextField(row["city"] || row["City"] || "-"),
-      state: sanitizeTextField(row["state"] || row["State"] || "-"),
-      gender: normalizeGender(row["gender"] || row["Gender"] || "mix"),
-      language: normalizeLanguage(row["language"] || row["Language"] || "mix"),
-    }));
-
-    return { leads, missingColumns };
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setUploadProgress(0);
+    setUploadStatus("Preparing file...");
+    setUploadSummary(null);
+    console.info("[Lead Upload] File received", {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+    });
 
     try {
-      const { leads, missingColumns } = await parseLeadsFromFile(file);
+      setUploadProgress(15);
+      setUploadStatus("Reading CSV/Excel...");
+      const { leads, missingColumns, detectedColumns, fileType } = await parseLeadsFromFile(file);
+      console.info("[Lead Upload] File type detected", { fileType });
+      console.info("[Lead Upload] File parsed successfully");
+      console.info("[Lead Upload] Rows detected", { totalRows: leads.length });
+      console.info("[Lead Upload] Columns detected", { detectedColumns });
 
-      if (leads.length === 0) {
-        toast({ title: "No data", description: "The file contains no lead data.", variant: "destructive" });
+      if (missingColumns.length > 0) {
+        const firstMissing = missingColumns[0];
+        throw new Error(`Missing column "${firstMissing}"`);
+      }
+
+      setUploadProgress(45);
+      setUploadStatus("Processing rows...");
+      const { validLeads, skippedRows } = buildLeadInsertPayload(leads);
+      console.info("[Lead Upload] Row processing summary", {
+        validRows: validLeads.length,
+        invalidRows: skippedRows,
+      });
+      console.info("[Lead Upload] Rows prepared for insert", { preparedRows: validLeads.length });
+
+      if (leads.length === 0 || validLeads.length === 0) {
+        toast({
+          title: "No valid data",
+          description: `No valid leads found. Skipped Rows: ${leads.length === 0 ? 0 : skippedRows}`,
+          variant: "destructive",
+        });
+        setUploadProgress(0);
+        setUploadStatus("Upload failed. Please try again.");
         setUploading(false);
         return;
       }
 
-      if (missingColumns.length > 0) {
-        console.info("Upload missing columns were auto-filled with defaults:", missingColumns);
-      }
-
+      setUploadProgress(55);
+      setUploadStatus("Saving leads to database...");
       await ensureLeadsSchemaReady();
 
-      const safeMappedLeads: UploadLeadRow[] = leads.map((row) => ({
-        full_name: sanitizeTextField(row.full_name),
-        phone_number: sanitizeTextField(row.phone_number),
-        city: sanitizeTextField(row.city),
-        state: sanitizeTextField(row.state),
-        gender: normalizeGender(row.gender),
-        language: normalizeLanguage(row.language),
-      }));
+      const batchSize = 100;
+      const totalBatches = Math.ceil(validLeads.length / batchSize);
 
-      let { error } = await supabase.from("leads").insert(safeMappedLeads);
+      let uploadedRows = 0;
+      let databaseSkippedRows = 0;
+      const dbErrors: string[] = [];
 
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        const start = batchIndex * batchSize;
+        const end = start + batchSize;
+        const batchRows = validLeads.slice(start, end);
+
+        setUploadStatus(`Saving leads to database... (batch ${batchIndex + 1}/${totalBatches})`);
+
+        let response = await supabase.from(LEADS_TABLE).insert(batchRows);
+        if (response.error && isSchemaCacheError(response.error.message)) {
+          await refreshLeadsSchemaCache();
+          response = await supabase.from(LEADS_TABLE).insert(batchRows);
+        }
+
+        if (response.error) {
+          dbErrors.push(response.error.message);
+          console.error("[Lead Upload] Batch insert failed", {
+            batchNumber: batchIndex + 1,
+            batchSize: batchRows.length,
+            message: response.error.message,
+            details: response.error.details,
+            hint: response.error.hint,
+            code: response.error.code,
+          });
+
+          for (let rowOffset = 0; rowOffset < batchRows.length; rowOffset++) {
+            const row = batchRows[rowOffset];
+            let rowResponse = await supabase.from(LEADS_TABLE).insert([row]);
+
+            if (rowResponse.error && isSchemaCacheError(rowResponse.error.message)) {
+              await refreshLeadsSchemaCache();
+              rowResponse = await supabase.from(LEADS_TABLE).insert([row]);
+            }
+
+            if (rowResponse.error) {
+              databaseSkippedRows += 1;
+              dbErrors.push(`Row ${start + rowOffset + 2}: ${rowResponse.error.message}`);
+              console.error("[Lead Upload] Row insert failed", {
+                rowNumber: start + rowOffset + 2,
+                message: rowResponse.error.message,
+                details: rowResponse.error.details,
+                hint: rowResponse.error.hint,
+                code: rowResponse.error.code,
+              });
+            } else {
+              uploadedRows += 1;
+            }
+          }
+        } else {
+          uploadedRows += batchRows.length;
+          console.info("[Lead Upload] Database insert result", {
+            batchNumber: batchIndex + 1,
+            insertedRows: batchRows.length,
+            success: true,
+          });
+        }
+
+        const saveProgress = Math.round(((batchIndex + 1) / totalBatches) * 45);
+        setUploadProgress(55 + saveProgress);
+      }
+
+      const totalSkippedRows = skippedRows + databaseSkippedRows;
+      console.info("[Lead Upload] Database insert status", {
+        totalRows: leads.length,
+        uploadedRows,
+        skippedRows: totalSkippedRows,
+        dbFailedRows: databaseSkippedRows,
+      });
+
+      if (uploadedRows === 0) {
+        const firstDbError = dbErrors[0] || "No rows could be uploaded.";
+        throw new Error(firstDbError);
+      }
+
+      setUploadSummary({
+        total: leads.length,
+        uploaded: uploadedRows,
+        skipped: totalSkippedRows,
+      });
+      setUploadProgress(100);
+      setUploadStatus("Upload Complete");
+      toast({
+        title: "Upload Complete",
+        description: `Total Rows: ${leads.length} | Uploaded Rows: ${uploadedRows} | Skipped Rows: ${totalSkippedRows}`,
+      });
+      loadData();
+    } catch (err) {
+      console.error("Lead upload failed:", err);
+      const message = err instanceof Error
+        ? err.message
+        : `Unexpected upload error: ${JSON.stringify(err)}`;
+      setUploadProgress(0);
+      setUploadStatus(`Upload failed: ${message}`);
+      toast({ title: "Upload failed", description: message, variant: "destructive" });
+    }
+    setUploading(false);
+    e.target.value = "";
+  };
+
+  const handleManualLeadSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (role !== "admin") {
+      toast({ title: "Error", description: "Only admins can add leads.", variant: "destructive" });
+      return;
+    }
+
+    const { validLeads } = buildLeadInsertPayload([
+      {
+        full_name: manualLead.fullName,
+        phone_number: manualLead.phoneNumber,
+        city: manualLead.city,
+        state: manualLead.state,
+        gender: normalizeGender(manualLead.gender, "male"),
+        language: normalizeLanguage(manualLead.language, "mix"),
+      },
+    ]);
+
+    if (validLeads.length === 0) {
+      toast({
+        title: "Validation error",
+        description: "Full Name and Phone Number are required.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setManualSubmitting(true);
+    try {
+      await ensureLeadsSchemaReady();
+
+      let { error } = await supabase.from(LEADS_TABLE).insert(validLeads);
       if (error && isSchemaCacheError(error.message)) {
         await refreshLeadsSchemaCache();
-        const retry = await supabase.from("leads").insert(safeMappedLeads);
+        const retry = await supabase.from(LEADS_TABLE).insert(validLeads);
         error = retry.error;
       }
 
       if (error) {
-        console.error("Lead upload database error:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-        toast({ title: "Upload error", description: error.message, variant: "destructive" });
+        toast({ title: "Error", description: error.message, variant: "destructive" });
       } else {
-        toast({
-          title: "Success",
-          description: `Leads uploaded successfully. Total Leads Uploaded: ${safeMappedLeads.length}`,
+        toast({ title: "Success", description: "Lead added successfully." });
+        setManualLead({
+          fullName: "",
+          phoneNumber: "",
+          city: "",
+          state: "",
+          gender: "male",
+          language: "mix",
         });
         loadData();
       }
     } catch (err) {
-      console.error("Lead upload failed:", err);
-      const message = err instanceof Error ? err.message : "Failed to upload leads.";
+      const message = err instanceof Error ? err.message : "Failed to add lead.";
       toast({ title: "Error", description: message, variant: "destructive" });
+    } finally {
+      setManualSubmitting(false);
     }
-    setUploading(false);
-    e.target.value = "";
   };
 
   const handleLogout = async () => {
@@ -357,7 +436,7 @@ export default function AdminDashboard() {
     try {
       // Delete all leads with either status (covers all records without UUID issues)
       const { error } = await supabase
-        .from("leads")
+        .from(LEADS_TABLE)
         .delete()
         .in("status", ["new", "sold"]);
       
@@ -487,25 +566,105 @@ export default function AdminDashboard() {
                   <span>Sold: <strong className="text-foreground">{stats.soldLeads}</strong></span>
                 </div>
                 <div>
-                  <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-8 hover:border-primary/50 transition-colors">
-                    <Upload className="h-8 w-8 text-muted-foreground" />
+                  <label className={`flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-border p-8 transition-colors ${uploading ? "cursor-not-allowed opacity-80" : "cursor-pointer hover:border-primary/50"}`}>
+                    {uploading ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : <Upload className="h-8 w-8 text-muted-foreground" />}
                     <span className="text-sm text-muted-foreground">
-                      {uploading ? "Uploading..." : "Click to upload CSV or Excel file"}
+                      {uploading ? "Uploading Leads..." : "Click to upload CSV or Excel file"}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      Columns: full_name, phone_number, city, state, gender, language (, optional: gujarati/hindi/mix)
+                      Columns: full_name, phone_number, city, state, gender, language
                     </span>
                     <input
                       type="file"
-                      accept=".csv,.xlsx,.xls"
+                      accept=".csv,.xlsx"
                       onChange={handleFileUpload}
                       className="hidden"
                       disabled={uploading}
                     />
                   </label>
                 </div>
+                {(uploading || uploadSummary) && (
+                  <div className="rounded-md border bg-muted/40 p-4 space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{uploadStatus}</span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <Progress value={uploadProgress} className="h-3" />
+                    {uploading && (
+                      <p className="text-xs text-muted-foreground">Processing file... {uploadProgress}%</p>
+                    )}
+                  </div>
+                )}
+                {uploadSummary && (
+                  <div className="rounded-md border bg-muted/40 p-4 text-sm">
+                    <p className="font-semibold">Upload Complete</p>
+                    <p>Total Rows: <strong>{uploadSummary.total}</strong></p>
+                    <p>Uploaded Rows: <strong>{uploadSummary.uploaded}</strong></p>
+                    <p>Skipped Rows: <strong>{uploadSummary.skipped}</strong></p>
+                  </div>
+                )}
               </CardContent>
             </Card>
+
+            {role === "admin" && (
+              <Card className="mt-4">
+                <CardHeader>
+                  <CardTitle className="text-lg">Add Lead Manually</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleManualLeadSubmit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <Input
+                      className="h-12 text-base"
+                      placeholder="Full Name"
+                      value={manualLead.fullName}
+                      onChange={(e) => setManualLead((prev) => ({ ...prev, fullName: e.target.value }))}
+                    />
+                    <Input
+                      className="h-12 text-base"
+                      placeholder="Phone Number"
+                      value={manualLead.phoneNumber}
+                      onChange={(e) => setManualLead((prev) => ({ ...prev, phoneNumber: e.target.value }))}
+                    />
+                    <Input
+                      className="h-12 text-base"
+                      placeholder="City"
+                      value={manualLead.city}
+                      onChange={(e) => setManualLead((prev) => ({ ...prev, city: e.target.value }))}
+                    />
+                    <Input
+                      className="h-12 text-base"
+                      placeholder="State"
+                      value={manualLead.state}
+                      onChange={(e) => setManualLead((prev) => ({ ...prev, state: e.target.value }))}
+                    />
+
+                    <select
+                      className="h-12 rounded-md border bg-background px-3 text-base"
+                      value={manualLead.gender}
+                      onChange={(e) => setManualLead((prev) => ({ ...prev, gender: e.target.value as ManualLeadForm["gender"] }))}
+                    >
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="mix">Mix</option>
+                    </select>
+
+                    <select
+                      className="h-12 rounded-md border bg-background px-3 text-base"
+                      value={manualLead.language}
+                      onChange={(e) => setManualLead((prev) => ({ ...prev, language: e.target.value as ManualLeadForm["language"] }))}
+                    >
+                      <option value="gujarati">Gujarati</option>
+                      <option value="hindi">Hindi</option>
+                      <option value="mix">Mix</option>
+                    </select>
+
+                    <Button type="submit" className="h-12 text-base md:col-span-2" disabled={manualSubmitting}>
+                      {manualSubmitting ? "Adding..." : "Add Lead"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="promos">
