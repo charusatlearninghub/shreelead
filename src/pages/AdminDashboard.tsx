@@ -27,7 +27,6 @@ interface LeadStats {
 interface PromoCodeRow {
   id: string;
   code: string;
-  is_used: boolean;
   used_by: string | null;
   used_at: string | null;
   created_at: string;
@@ -711,8 +710,8 @@ export default function AdminDashboard() {
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <code className="font-mono text-xs bg-secondary px-2 py-1 rounded truncate">{p.code}</code>
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.is_used ? "bg-destructive/10 text-destructive" : "bg-accent/20 text-accent-foreground"}`}>
-                            {p.is_used ? "Used" : "Available"}
+                          <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${!!p.used_by ? "bg-destructive/10 text-destructive" : "bg-accent/20 text-accent-foreground"}`}>
+                            {!!p.used_by ? "Used" : "Available"}
                           </span>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -737,7 +736,7 @@ export default function AdminDashboard() {
                           </AlertDialog>
                         </div>
                       </div>
-                      {p.is_used && (
+                      {!!p.used_by && (
                         <div className="text-xs text-muted-foreground space-y-0.5 border-t pt-2">
                           <p>Used by: <span className="font-medium">{p.user_name || "Unknown"}</span></p>
                           <p>Email: <span className="font-medium">{p.user_email || "Unknown"}</span></p>
@@ -745,7 +744,7 @@ export default function AdminDashboard() {
                           <p>Used at: <span className="font-medium">{p.used_at ? new Date(p.used_at).toLocaleString() : "Unknown"}</span></p>
                         </div>
                       )}
-                      {!p.is_used && (
+                      {!p.used_by && (
                         <p className="text-xs text-muted-foreground">
                           Created: {new Date(p.created_at).toLocaleString()}
                         </p>
