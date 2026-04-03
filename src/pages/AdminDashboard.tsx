@@ -176,7 +176,7 @@ export default function AdminDashboard() {
     }
   };
 
-
+  const isSchemaCacheError = (message?: string) => {
     const lower = (message || "").toLowerCase();
     return lower.includes("schema cache") ||
       lower.includes("could not find the 'language' column") ||
