@@ -166,8 +166,17 @@ export default function AdminDashboard() {
       loadData();
     }
   };
+  const deletePromoCode = async (id: string) => {
+    const { error } = await supabase.from("promo_codes").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Deleted", description: "Promo code deleted." });
+      loadData();
+    }
+  };
 
-  const isSchemaCacheError = (message?: string) => {
+
     const lower = (message || "").toLowerCase();
     return lower.includes("schema cache") ||
       lower.includes("could not find the 'language' column") ||
