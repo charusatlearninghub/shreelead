@@ -27,7 +27,6 @@ interface LeadStats {
 interface PromoCodeRow {
   id: string;
   code: string;
-  is_used: boolean;
   used_by: string | null;
   used_at: string | null;
   created_at: string;
