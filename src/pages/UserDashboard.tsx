@@ -222,7 +222,7 @@ export default function UserDashboard() {
       setLeadCount("");
       setPromoCode("");
       loadHistory();
-      countAvailableLeads(languageFilter);
+      countAvailableLeads(genderFilter, languageFilter);
     } catch (err) {
       console.error("Download error:", err);
       toast({ title: "Error", description: "Something went wrong during download.", variant: "destructive" });
