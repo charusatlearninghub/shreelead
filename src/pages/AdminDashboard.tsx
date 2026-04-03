@@ -694,11 +694,11 @@ export default function AdminDashboard() {
                     <div key={p.id} className="flex flex-col gap-1 rounded-lg border p-3 text-sm">
                       <div className="flex items-center justify-between gap-2">
                         <code className="font-mono text-xs bg-secondary px-2 py-1 rounded truncate">{p.code}</code>
-                        <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 ${p.used_by || p.is_used ? "bg-destructive/10 text-destructive" : "bg-green-100 text-green-700"}`}>
-                          {p.used_by || p.is_used ? "Used" : "Available"}
+                        <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap flex-shrink-0 ${p.used_by ? "bg-destructive/10 text-destructive" : "bg-green-100 text-green-700"}`}>
+                          {p.used_by ? "Used" : "Available"}
                         </span>
                       </div>
-                      {(p.used_by || p.is_used) && (
+                      {(p.used_by) && (
                         <div className="text-xs text-muted-foreground space-y-0.5">
                           <p>
                             Used by: <span className="font-medium">{p.user_email || "Unknown User"}</span>
@@ -710,7 +710,7 @@ export default function AdminDashboard() {
                           </p>
                         </div>
                       )}
-                      {!p.used_by && !p.is_used && (
+                      {!p.used_by && (
                         <p className="text-xs text-muted-foreground">
                           Created: {new Date(p.created_at).toLocaleString()}
                         </p>
