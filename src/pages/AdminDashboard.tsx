@@ -168,7 +168,7 @@ export default function AdminDashboard() {
   };
 
   const refreshLeadsSchemaCache = async () => {
-    await supabase.rpc("refresh_postgrest_schema_cache");
+    // Schema cache refresh is handled automatically
     await new Promise((resolve) => setTimeout(resolve, 300));
   };
 
