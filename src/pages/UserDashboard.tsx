@@ -168,6 +168,7 @@ export default function UserDashboard() {
         .eq("id", promo.id);
 
       if (updatePromoError) {
+        console.error("Promo update error:", updatePromoError);
         toast({ title: "Error", description: "Failed to mark promo code as used.", variant: "destructive" });
         setLoading(false);
         return;
