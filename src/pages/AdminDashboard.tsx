@@ -27,10 +27,13 @@ interface LeadStats {
 interface PromoCodeRow {
   id: string;
   code: string;
+  is_used: boolean;
   used_by: string | null;
   used_at: string | null;
   created_at: string;
   user_email?: string;
+  user_name?: string;
+  company_name?: string;
 }
 
 interface ProfileRow {
