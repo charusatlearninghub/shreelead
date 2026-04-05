@@ -195,7 +195,7 @@ export default function UserDashboard() {
       // Generate CSV
       const csvHeader = "full_name,phone_number,city,state,gender,language\n";
       const csvRows = leads.map(l =>
-        `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${(l as any).gender || '-'}","${(l as any).language || '-'}"`
+        `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${l.gender || '-'}","${l.language || '-'}"`
       ).join("\n");
       const csv = csvHeader + csvRows;
 
