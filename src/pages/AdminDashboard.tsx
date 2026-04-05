@@ -10,9 +10,10 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  Users, Database, Tag, Upload, LogOut, Shield, Plus, Trash2,
-  FileSpreadsheet, BarChart3, TrendingUp, CheckCircle, History, Loader2
+  Users, Database, Tag, Upload, LogOut, Shield, Trash2,
+  FileSpreadsheet, BarChart3, TrendingUp, CheckCircle, History, Loader2, ClipboardCopy
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { buildLeadInsertPayload, normalizeGender, normalizeLanguage, parseLeadsFromFile } from "@/lib/leadUpload";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -25,6 +26,10 @@ interface LeadStats {
 }
 
 interface PromoCodeRow {
+  assigned_user_id: string | null;
+  total_leads: number;
+  gender: "male" | "female" | "mix";
+  language: "gujarati" | "hindi" | "mix";
   id: string;
   code: string;
   used_by: string | null;
@@ -53,6 +58,21 @@ interface DownloadHistoryRow {
   user_name?: string;
 }
 
+interface LeadRequestRow {
+  id: string;
+  user_id: string;
+  requested_leads: number;
+  gender: "male" | "female" | "mix";
+  language: "gujarati" | "hindi" | "mix";
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  reviewed_at: string | null;
+  promo_code_id: string | null;
+  user_name?: string;
+  user_email?: string;
+  promo_code?: string;
+}
+
 interface ManualLeadForm {
   fullName: string;
   phoneNumber: string;
@@ -68,9 +88,10 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<LeadStats>({ newLeads: 0, soldLeads: 0 });
   const [totalUsers, setTotalUsers] = useState(0);
   const [promoCodes, setPromoCodes] = useState<PromoCodeRow[]>([]);
-  const [promoCount, setPromoCount] = useState("1");
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [downloadHistory, setDownloadHistory] = useState<DownloadHistoryRow[]>([]);
+  const [leadRequests, setLeadRequests] = useState<LeadRequestRow[]>([]);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState("Idle");
@@ -87,7 +108,7 @@ export default function AdminDashboard() {
   });
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
 
   const loadData = useCallback(async () => {
     const { count: newCount } = await supabase.from(LEADS_TABLE).select("*", { count: "exact", head: true }).eq("status", "new");
@@ -111,11 +132,12 @@ export default function AdminDashboard() {
       let userEmail = "";
       let userName = "";
       let companyName = "";
-      if (p.used_by) {
+      const lookupUserId = p.assigned_user_id || p.used_by;
+      if (lookupUserId) {
         const { data: profile } = await supabase
           .from("profiles")
           .select("email, full_name, company_name")
-          .eq("user_id", p.used_by)
+          .eq("user_id", lookupUserId)
           .single();
         userEmail = profile?.email || "Unknown";
         userName = profile?.full_name || "Unknown";
@@ -145,26 +167,42 @@ export default function AdminDashboard() {
       });
     }
     setDownloadHistory(enrichedHistory);
+
+    const { data: requestData } = await supabase
+      .from("lead_requests")
+      .select("id, user_id, requested_leads, gender, language, status, created_at, reviewed_at, promo_code_id")
+      .order("created_at", { ascending: false });
+
+    const enrichedRequests: LeadRequestRow[] = [];
+    for (const request of (requestData as LeadRequestRow[]) || []) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("email, full_name")
+        .eq("user_id", request.user_id)
+        .single();
+
+      let promoCode = "";
+      if (request.promo_code_id) {
+        const { data: promo } = await supabase
+          .from("promo_codes")
+          .select("code")
+          .eq("id", request.promo_code_id)
+          .maybeSingle();
+        promoCode = promo?.code || "";
+      }
+
+      enrichedRequests.push({
+        ...request,
+        user_email: profile?.email || "Unknown",
+        user_name: profile?.full_name || "Unknown",
+        promo_code: promoCode,
+      });
+    }
+    setLeadRequests(enrichedRequests);
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const generatePromoCodes = async () => {
-    const count = parseInt(promoCount) || 1;
-    const codes = [];
-    for (let i = 0; i < count; i++) {
-      codes.push({
-        code: `PROMO-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-      });
-    }
-    const { error } = await supabase.from("promo_codes").insert(codes);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Success", description: `Generated ${count} promo code(s).` });
-      loadData();
-    }
-  };
   const deletePromoCode = async (id: string) => {
     const { error } = await supabase.from("promo_codes").delete().eq("id", id);
     if (error) {
@@ -173,6 +211,54 @@ export default function AdminDashboard() {
       toast({ title: "Deleted", description: "Promo code deleted." });
       loadData();
     }
+  };
+
+  const handleApproveRequest = async (requestId: string) => {
+    setProcessingRequestId(requestId);
+    const { data, error } = await supabase.rpc("approve_lead_request", { p_request_id: requestId });
+    setProcessingRequestId(null);
+
+    if (error) {
+      toast({ title: "Approval failed", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    if (data) {
+      await navigator.clipboard.writeText(data);
+      toast({ title: "Request approved", description: `Promo code ${data} generated and copied.` });
+    } else {
+      toast({ title: "Request approved", description: "Promo code generated successfully." });
+    }
+
+    loadData();
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    if (!user?.id) {
+      toast({ title: "Error", description: "Admin identity unavailable.", variant: "destructive" });
+      return;
+    }
+
+    setProcessingRequestId(requestId);
+    const { error } = await supabase
+      .from("lead_requests")
+      .update({
+        status: "rejected",
+        reviewed_by: user.id,
+        reviewed_by_admin: user.id,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq("id", requestId)
+      .eq("status", "pending");
+    setProcessingRequestId(null);
+
+    if (error) {
+      toast({ title: "Reject failed", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    toast({ title: "Request rejected", description: "Lead request marked as rejected." });
+    loadData();
   };
 
   const isSchemaCacheError = (message?: string) => {
@@ -518,12 +604,15 @@ export default function AdminDashboard() {
         </div>
 
         <Tabs defaultValue="leads" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4 h-12">
+          <TabsList className="grid h-12 w-full grid-cols-5">
             <TabsTrigger value="leads" className="text-xs md:text-sm">
               <Upload className="mr-1 h-4 w-4 hidden md:inline" />Leads
             </TabsTrigger>
             <TabsTrigger value="promos" className="text-xs md:text-sm">
               <Tag className="mr-1 h-4 w-4 hidden md:inline" />Promos
+            </TabsTrigger>
+            <TabsTrigger value="requests" className="text-xs md:text-sm">
+              <ClipboardCopy className="mr-1 hidden h-4 w-4 md:inline" />Requests
             </TabsTrigger>
             <TabsTrigger value="users" className="text-xs md:text-sm">
               <Users className="mr-1 h-4 w-4 hidden md:inline" />Users
@@ -690,28 +779,14 @@ export default function AdminDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    min="1"
-                    value={promoCount}
-                    onChange={(e) => setPromoCount(e.target.value)}
-                    className="w-24 h-12"
-                    placeholder="Count"
-                  />
-                  <Button onClick={generatePromoCodes} className="h-12">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Generate
-                  </Button>
-                </div>
                 <div className="space-y-2 max-h-[500px] overflow-y-auto">
                   {promoCodes.map((p) => (
                     <div key={p.id} className="flex flex-col gap-2 rounded-lg border p-3 text-sm">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <code className="font-mono text-xs bg-secondary px-2 py-1 rounded truncate">{p.code}</code>
                         <div className="flex items-center gap-2">
-                          <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${!!p.used_by ? "bg-destructive/10 text-destructive" : "bg-accent/20 text-accent-foreground"}`}>
-                            {!!p.used_by ? "Used" : "Available"}
+                          <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${p.used_by ? "bg-destructive/10 text-destructive" : "bg-accent/20 text-accent-foreground"}`}>
+                            {p.used_by ? "Used" : "Available"}
                           </span>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -736,23 +811,87 @@ export default function AdminDashboard() {
                           </AlertDialog>
                         </div>
                       </div>
-                      {!!p.used_by && (
-                        <div className="text-xs text-muted-foreground space-y-0.5 border-t pt-2">
-                          <p>Used by: <span className="font-medium">{p.user_name || "Unknown"}</span></p>
-                          <p>Email: <span className="font-medium">{p.user_email || "Unknown"}</span></p>
-                          <p>Company: <span className="font-medium">{p.company_name || "-"}</span></p>
+                      <div className="text-xs text-muted-foreground space-y-0.5 border-t pt-2">
+                        <p>Assigned User: <span className="font-medium">{p.user_name || "Unassigned"}</span></p>
+                        <p>Email: <span className="font-medium">{p.user_email || "-"}</span></p>
+                        <p>Company: <span className="font-medium">{p.company_name || "-"}</span></p>
+                        <p>Total Leads: <span className="font-medium">{p.total_leads}</span></p>
+                        <p>Gender: <span className="font-medium capitalize">{p.gender}</span></p>
+                        <p>Language: <span className="font-medium capitalize">{p.language}</span></p>
+                        <p>Created: <span className="font-medium">{new Date(p.created_at).toLocaleString()}</span></p>
+                        {p.used_by && (
                           <p>Used at: <span className="font-medium">{p.used_at ? new Date(p.used_at).toLocaleString() : "Unknown"}</span></p>
-                        </div>
-                      )}
-                      {!p.used_by && (
-                        <p className="text-xs text-muted-foreground">
-                          Created: {new Date(p.created_at).toLocaleString()}
-                        </p>
-                      )}
+                        )}
+                      </div>
                     </div>
                   ))}
                   {promoCodes.length === 0 && (
                     <p className="text-center text-sm text-muted-foreground py-8">No promo codes yet.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="requests">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <ClipboardCopy className="h-5 w-5 text-primary" />
+                  Lead Requests
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-[520px] overflow-y-auto">
+                  {leadRequests.map((request) => (
+                    <div key={request.id} className="rounded-lg border p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">{request.user_name || "Unknown User"}</p>
+                          <p className="text-xs text-muted-foreground">{request.user_email || "Unknown"}</p>
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${request.status === "approved" ? "bg-green-100 text-green-700" : request.status === "rejected" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}>
+                          {request.status}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+                        <p>Requested: <span className="font-medium text-foreground">{request.requested_leads}</span></p>
+                        <p>Gender: <span className="font-medium capitalize text-foreground">{request.gender}</span></p>
+                        <p>Language: <span className="font-medium capitalize text-foreground">{request.language}</span></p>
+                        <p>Date: <span className="font-medium text-foreground">{new Date(request.created_at).toLocaleDateString()}</span></p>
+                      </div>
+
+                      {request.promo_code && (
+                        <p className="text-xs text-muted-foreground">
+                          Promo Code: <code className="bg-secondary px-1.5 py-0.5 rounded">{request.promo_code}</code>
+                        </p>
+                      )}
+
+                      {request.status === "pending" && (
+                        <div className="flex gap-2 pt-1">
+                          <Button
+                            size="sm"
+                            onClick={() => handleApproveRequest(request.id)}
+                            disabled={processingRequestId === request.id}
+                          >
+                            {processingRequestId === request.id ? "Processing..." : "Approve"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleRejectRequest(request.id)}
+                            disabled={processingRequestId === request.id}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {leadRequests.length === 0 && (
+                    <p className="text-center text-sm text-muted-foreground py-8">No lead requests yet.</p>
                   )}
                 </div>
               </CardContent>
@@ -829,7 +968,7 @@ export default function AdminDashboard() {
   );
 }
 
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: number }) {
+function StatCard({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
   return (
     <Card className="animate-fade-in">
       <CardContent className="flex flex-col items-center gap-1 p-4 text-center">

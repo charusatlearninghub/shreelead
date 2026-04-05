@@ -1,17 +1,25 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { signOut } from "@/lib/auth";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { Download, Tag, LogOut, User, History } from "lucide-react";
+import { Bell, Download, History, LogOut, Search, Send, Tag, User } from "lucide-react";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
 interface DownloadRecord {
@@ -22,27 +30,40 @@ interface DownloadRecord {
   filters: Record<string, string> | null;
 }
 
+interface PromoCodeDetails {
+  id: string;
+  code: string;
+  total_leads: number;
+  gender: "male" | "female" | "mix";
+  language: "gujarati" | "hindi" | "mix";
+  is_used: boolean;
+  created_at: string;
+}
+
+interface LeadRequestRecord {
+  id: string;
+  requested_leads: number;
+  gender: "male" | "female" | "mix";
+  language: "gujarati" | "hindi" | "mix";
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+}
+
 export default function UserDashboard() {
   const { user } = useAuth();
-  const [leadCount, setLeadCount] = useState("");
   const [promoCode, setPromoCode] = useState("");
-  const [genderFilter, setGenderFilter] = useState<"male" | "female" | "mix">("mix");
-  const [languageFilter, setLanguageFilter] = useState<"gujarati" | "hindi" | "mix">("mix");
-  const [availableLeads, setAvailableLeads] = useState(0);
+  const [promoDetails, setPromoDetails] = useState<PromoCodeDetails | null>(null);
+  const [assignedCodes, setAssignedCodes] = useState<PromoCodeDetails[]>([]);
+  const [requestLeadCount, setRequestLeadCount] = useState("10");
+  const [requestGender, setRequestGender] = useState<"male" | "female" | "mix">("mix");
+  const [requestLanguage, setRequestLanguage] = useState<"gujarati" | "hindi" | "mix">("mix");
   const [loading, setLoading] = useState(false);
-  const [countingLeads, setCountingLeads] = useState(false);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   const [history, setHistory] = useState<DownloadRecord[]>([]);
+  const [requests, setRequests] = useState<LeadRequestRecord[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
-
-  useEffect(() => {
-    loadHistory();
-    countAvailableLeads("mix", "mix");
-  }, []);
-
-  useEffect(() => {
-    countAvailableLeads(genderFilter, languageFilter);
-  }, [genderFilter, languageFilter]);
 
   const loadHistory = async () => {
     const { data } = await supabase
@@ -52,151 +73,94 @@ export default function UserDashboard() {
     setHistory((data as DownloadRecord[]) || []);
   };
 
-  const countAvailableLeads = async (gender: "male" | "female" | "mix", language: "gujarati" | "hindi" | "mix") => {
-    setCountingLeads(true);
-    try {
-      let query = supabase
-        .from("leads")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "new");
-
-      // Apply gender filter
-      if (gender !== "mix") {
-        query = query.eq("gender", gender);
-      }
-
-      // Apply language filter
-      if (language !== "mix") {
-        query = query.eq("language", language);
-      } else {
-        // For "mix", include both gujarati and hindi
-        query = query.in("language", ["gujarati", "hindi", "mix"]);
-      }
-
-      const { count } = await query;
-      setAvailableLeads(count || 0);
-    } catch (err) {
-      console.error("Error counting leads:", err);
-      setAvailableLeads(0);
-    } finally {
-      setCountingLeads(false);
-    }
+  const loadRequests = async () => {
+    const { data } = await supabase
+      .from("lead_requests")
+      .select("id, requested_leads, gender, language, status, created_at")
+      .order("created_at", { ascending: false });
+    setRequests((data as LeadRequestRecord[]) || []);
   };
 
-  const handleDownload = async () => {
-    const count = parseInt(leadCount);
-    if (!count || count < 1) {
-      toast({ title: "Invalid count", description: "Enter a valid number of leads.", variant: "destructive" });
+  const loadAssignedCodes = async () => {
+    const { data } = await supabase
+      .from("promo_codes")
+      .select("id, code, total_leads, gender, language, is_used, created_at")
+      .order("created_at", { ascending: false });
+    setAssignedCodes((data as PromoCodeDetails[]) || []);
+  };
+
+  useEffect(() => {
+    loadHistory();
+    loadRequests();
+    loadAssignedCodes();
+  }, []);
+
+  const fetchPromoCodeDetails = async () => {
+    const trimmedCode = promoCode.trim();
+    if (!trimmedCode) {
+      setPromoDetails(null);
+      toast({ title: "Promo code required", description: "Enter a promo code first.", variant: "destructive" });
       return;
     }
-    if (count > availableLeads) {
-      toast({ 
-        title: "Insufficient leads", 
-        description: `Requested number of leads exceeds the available leads. Available: ${availableLeads}`,
-        variant: "destructive" 
+
+    setDetailsLoading(true);
+    const { data, error } = await supabase
+      .from("promo_codes")
+      .select("id, code, total_leads, gender, language, is_used, created_at")
+      .eq("code", trimmedCode)
+      .maybeSingle();
+    setDetailsLoading(false);
+
+    if (error || !data) {
+      setPromoDetails(null);
+      toast({
+        title: "Invalid promo code",
+        description: "Code not found or not assigned to your account.",
+        variant: "destructive",
       });
       return;
     }
+
+    const details = data as PromoCodeDetails;
+    setPromoDetails(details);
+
+    if (details.is_used) {
+      toast({ title: "Promo already used", description: "This promo code has already been used.", variant: "destructive" });
+      return;
+    }
+
+    toast({ title: "Promo loaded", description: "Review the assigned details and download." });
+  };
+
+  const handleDownload = async () => {
     if (!promoCode.trim()) {
-      toast({ title: "Promo code required", description: "Enter a valid promo code.", variant: "destructive" });
+      toast({ title: "Promo code required", description: "Enter your promo code.", variant: "destructive" });
       return;
     }
 
     setLoading(true);
     try {
-      // Check if promo code exists and is available (RLS only returns unused codes)
-      const { data: allPromos, error: checkError } = await supabase
-        .from("promo_codes")
-        .select("*")
-        .eq("code", promoCode.trim());
-
-      if (checkError || !allPromos || allPromos.length === 0) {
-        toast({ title: "Invalid or used promo code", description: "This promo code does not exist or has already been used.", variant: "destructive" });
-        setLoading(false);
-        return;
-      }
-
-      const promo = allPromos[0];
-
-      // Build query with gender and language filters
-      let query = supabase
-        .from("leads")
-        .select("*")
-        .eq("status", "new")
-        .order("uploaded_at", { ascending: false })
-        .limit(count);
-
-      // Apply gender filter
-      if (genderFilter !== "mix") {
-        query = query.eq("gender", genderFilter);
-      }
-
-      // Apply language filter
-      if (languageFilter !== "mix") {
-        query = query.eq("language", languageFilter);
-      } else {
-        // For "mix", include both gujarati and hindi
-        query = query.in("language", ["gujarati", "hindi", "mix"]);
-      }
-
-      const { data: leads, error: leadsError } = await query;
-
-      if (leadsError || !leads || leads.length === 0) {
-        toast({ title: "No leads available", description: "No leads match your filters.", variant: "destructive" });
-        setLoading(false);
-        return;
-      }
-
-      // Mark promo as used - set both is_used flag and tracking fields
-      const { error: updatePromoError } = await supabase
-        .from("promo_codes")
-        .update({ 
-          used_by: user!.id, 
-          used_at: new Date().toISOString() 
-        })
-        .eq("id", promo.id);
-
-      if (updatePromoError) {
-        console.error("Promo update error:", updatePromoError);
-        toast({ title: "Error", description: "Failed to mark promo code as used.", variant: "destructive" });
-        setLoading(false);
-        return;
-      }
-
-      // Mark leads as sold
-      const leadIds = leads.map(l => l.id);
-      for (const id of leadIds) {
-        await supabase
-          .from("leads")
-          .update({ status: "sold", sold_to: user!.id, sold_at: new Date().toISOString() })
-          .eq("id", id);
-      }
-
-      // Save download history
-      const filters: Record<string, string> = {};
-      if (genderFilter !== "mix") {
-        filters.gender = genderFilter;
-      } else {
-        filters.gender = "mix";
-      }
-      if (languageFilter !== "mix") {
-        filters.language = languageFilter;
-      } else {
-        filters.language = "mix";
-      }
-
-      await supabase.from("download_history").insert({
-        user_id: user!.id,
-        lead_count: leads.length,
-        promo_code: promoCode.trim(),
-        filters: filters,
+      const { data: leads, error } = await supabase.rpc("consume_promo_code_for_download", {
+        p_promo_code: promoCode.trim(),
       });
 
-      // Generate CSV
+      if (error || !leads || leads.length === 0) {
+        toast({
+          title: "Download failed",
+          description: error?.message || "Could not process this promo code.",
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
       const csvHeader = "full_name,phone_number,city,state,gender,language\n";
-      const csvRows = leads.map(l =>
-        `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${l.gender || '-'}","${l.language || '-'}"`
-      ).join("\n");
+      const csvRows = leads
+        .map(
+          (l) =>
+            `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${l.gender || "-"}","${l.language || "-"}"`
+        )
+        .join("\n");
       const csv = csvHeader + csvRows;
 
       const blob = new Blob([csv], { type: "text/csv" });
@@ -208,15 +172,48 @@ export default function UserDashboard() {
       URL.revokeObjectURL(url);
 
       toast({ title: "Success!", description: `Downloaded ${leads.length} leads.` });
-      setLeadCount("");
       setPromoCode("");
+      setPromoDetails(null);
       loadHistory();
-      countAvailableLeads(genderFilter, languageFilter);
+      loadAssignedCodes();
     } catch (err) {
       console.error("Download error:", err);
       toast({ title: "Error", description: "Something went wrong during download.", variant: "destructive" });
     }
     setLoading(false);
+  };
+
+  const handleCreateLeadRequest = async () => {
+    const requestedLeads = parseInt(requestLeadCount, 10);
+    if (!requestedLeads || requestedLeads < 1) {
+      toast({ title: "Invalid request", description: "Enter a valid lead count.", variant: "destructive" });
+      return;
+    }
+
+    if (!user) {
+      toast({ title: "Not logged in", description: "Please sign in again.", variant: "destructive" });
+      return;
+    }
+
+    setRequesting(true);
+    const { error } = await supabase.from("lead_requests").insert({
+      user_id: user.id,
+      requested_leads: requestedLeads,
+      gender: requestGender,
+      language: requestLanguage,
+    });
+    setRequesting(false);
+
+    if (error) {
+      toast({ title: "Request failed", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    toast({ title: "Request submitted", description: "Admin will review your lead request." });
+    setRequestLeadCount("10");
+    setRequestGender("mix");
+    setRequestLanguage("mix");
+    loadRequests();
   };
 
   const handleLogout = async () => {
@@ -256,117 +253,87 @@ export default function UserDashboard() {
       </header>
 
       <main className="container py-6 md:py-10">
-        <div className="mx-auto max-w-lg space-y-6">
-          {/* Download Card */}
+        <div className="mx-auto max-w-2xl space-y-6">
+          {assignedCodes.some((code) => !code.is_used) && (
+            <Card className="border-primary/30 bg-primary/5 animate-fade-in">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <Bell className="mt-0.5 h-5 w-5 text-primary" />
+                  <div className="space-y-2">
+                    <p className="font-medium">You have received a new promo code from admin.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {assignedCodes
+                        .filter((code) => !code.is_used)
+                        .slice(0, 3)
+                        .map((code) => (
+                          <Badge key={code.id} variant="secondary">
+                            {code.code}
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="animate-fade-in">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Download className="h-5 w-5 text-primary" />
                 Download Leads
               </CardTitle>
-              <CardDescription>
-                Select a language, enter lead count, and use your promo code
-              </CardDescription>
+              <CardDescription>Enter your assigned promo code to download admin-approved leads.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              {/* Gender Filter Section */}
-              <div className="space-y-3 rounded-lg border p-4">
-                <Label className="block text-sm font-medium">Lead Gender</Label>
-                <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-                  <Button
-                    onClick={() => setGenderFilter("male")}
-                    variant={genderFilter === "male" ? "default" : "outline"}
-                    className="flex-1 h-12 text-base font-medium"
-                  >
-                    Male
-                  </Button>
-                  <Button
-                    onClick={() => setGenderFilter("female")}
-                    variant={genderFilter === "female" ? "default" : "outline"}
-                    className="flex-1 h-12 text-base font-medium"
-                  >
-                    Female
-                  </Button>
-                  <Button
-                    onClick={() => setGenderFilter("mix")}
-                    variant={genderFilter === "mix" ? "default" : "outline"}
-                    className="flex-1 h-12 text-base font-medium"
-                  >
-                    Mix
-                  </Button>
-                </div>
-              </div>
-
-              {/* Language Filter Section */}
-              <div className="space-y-3 rounded-lg border p-4">
-                <Label className="block text-sm font-medium">Lead Language</Label>
-                <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-                  <Button
-                    onClick={() => setLanguageFilter("gujarati")}
-                    variant={languageFilter === "gujarati" ? "default" : "outline"}
-                    className="flex-1 h-12 text-base font-medium"
-                  >
-                    Gujarati
-                  </Button>
-                  <Button
-                    onClick={() => setLanguageFilter("hindi")}
-                    variant={languageFilter === "hindi" ? "default" : "outline"}
-                    className="flex-1 h-12 text-base font-medium"
-                  >
-                    Hindi
-                  </Button>
-                  <Button
-                    onClick={() => setLanguageFilter("mix")}
-                    variant={languageFilter === "mix" ? "default" : "outline"}
-                    className="flex-1 h-12 text-base font-medium"
-                  >
-                    Mix
-                  </Button>
-                </div>
-              </div>
-
-              {/* Available Leads Counter */}
-              <div className="rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 p-3">
-                <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                  Available Leads: <span className="text-lg font-bold">{countingLeads ? "..." : availableLeads}</span>
-                </p>
-              </div>
-
-              {/* Number of Leads Input */}
-              <div className="space-y-2">
-                <Label htmlFor="leadCount">Number of Leads</Label>
-                <Input
-                  id="leadCount"
-                  type="number"
-                  min="1"
-                  max={availableLeads}
-                  placeholder={`e.g. 10 (max: ${availableLeads})`}
-                  value={leadCount}
-                  onChange={(e) => setLeadCount(e.target.value)}
-                  className="h-12 text-base"
-                />
-              </div>
-
-              {/* Promo Code Input */}
               <div className="space-y-2">
                 <Label htmlFor="promoCode">Promo Code</Label>
-                <div className="relative">
-                  <Tag className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="promoCode"
-                    placeholder="Enter your promo code"
-                    value={promoCode}
-                    onChange={(e) => setPromoCode(e.target.value)}
-                    className="h-12 pl-10 text-base"
-                  />
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Tag className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      id="promoCode"
+                      placeholder="Enter your promo code"
+                      value={promoCode}
+                      onChange={(e) => {
+                        setPromoCode(e.target.value);
+                        setPromoDetails(null);
+                      }}
+                      className="h-12 pl-10 text-base"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={fetchPromoCodeDetails}
+                    disabled={detailsLoading}
+                    className="h-12"
+                  >
+                    <Search className="mr-2 h-4 w-4" />
+                    {detailsLoading ? "Checking..." : "Check"}
+                  </Button>
                 </div>
               </div>
 
-              {/* Download Button */}
+              {promoDetails && (
+                <div className="space-y-2 rounded-lg border bg-muted/30 p-4">
+                  <p className="font-medium">Promo Code Details</p>
+                  <p className="text-sm text-muted-foreground">
+                    Total Leads: <span className="font-medium text-foreground">{promoDetails.total_leads}</span>
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Gender: <span className="font-medium capitalize text-foreground">{promoDetails.gender}</span>
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Language: <span className="font-medium capitalize text-foreground">{promoDetails.language}</span>
+                  </p>
+                </div>
+              )}
+
               <Button
                 onClick={handleDownload}
-                disabled={loading || availableLeads === 0}
-                className="w-full h-12 text-base"
+                disabled={loading || !promoCode.trim() || (promoDetails?.is_used ?? false)}
+                className="h-12 w-full text-base"
               >
                 <Download className="mr-2 h-5 w-5" />
                 {loading ? "Processing..." : "Download Leads"}
@@ -374,7 +341,98 @@ export default function UserDashboard() {
             </CardContent>
           </Card>
 
-          {/* Download History */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Send className="h-5 w-5 text-primary" />
+                Request Leads
+              </CardTitle>
+              <CardDescription>Send a lead request to admin. Promo code is generated after approval.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="requestLeads">Number of Leads</Label>
+                <Input
+                  id="requestLeads"
+                  type="number"
+                  min="1"
+                  value={requestLeadCount}
+                  onChange={(e) => setRequestLeadCount(e.target.value)}
+                  className="h-12 text-base"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Gender</Label>
+                  <select
+                    className="h-12 w-full rounded-md border bg-background px-3 text-base"
+                    value={requestGender}
+                    onChange={(e) => setRequestGender(e.target.value as "male" | "female" | "mix")}
+                  >
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="mix">Mix</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Language</Label>
+                  <select
+                    className="h-12 w-full rounded-md border bg-background px-3 text-base"
+                    value={requestLanguage}
+                    onChange={(e) => setRequestLanguage(e.target.value as "gujarati" | "hindi" | "mix")}
+                  >
+                    <option value="gujarati">Gujarati</option>
+                    <option value="hindi">Hindi</option>
+                    <option value="mix">Mix</option>
+                  </select>
+                </div>
+              </div>
+
+              <Button onClick={handleCreateLeadRequest} disabled={requesting} className="h-12 w-full text-base">
+                <Send className="mr-2 h-4 w-4" />
+                {requesting ? "Submitting..." : "Submit Request"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Lead Request History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-80 space-y-2 overflow-y-auto">
+                {requests.map((req) => (
+                  <div key={req.id} className="space-y-1 rounded-lg border p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">{req.requested_leads} leads</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${
+                          req.status === "approved"
+                            ? "bg-green-100 text-green-700"
+                            : req.status === "rejected"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-yellow-100 text-yellow-700"
+                        }`}
+                      >
+                        {req.status}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <span>Gender: {req.gender}</span>
+                      <span>Language: {req.language}</span>
+                      <span>{new Date(req.created_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                ))}
+                {requests.length === 0 && (
+                  <p className="py-6 text-center text-sm text-muted-foreground">No lead requests yet.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -383,9 +441,9 @@ export default function UserDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
+              <div className="max-h-80 space-y-2 overflow-y-auto">
                 {history.map((h) => (
-                  <div key={h.id} className="rounded-lg border p-3 space-y-1">
+                  <div key={h.id} className="space-y-1 rounded-lg border p-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">{h.lead_count} leads</span>
                       <span className="text-xs text-muted-foreground">
@@ -393,15 +451,18 @@ export default function UserDashboard() {
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <code className="bg-secondary px-1.5 py-0.5 rounded">{h.promo_code}</code>
-                      {h.filters && Object.entries(h.filters).map(([k, v]) => (
-                        <span key={k} className="bg-accent px-1.5 py-0.5 rounded">{k}: {v}</span>
-                      ))}
+                      <code className="rounded bg-secondary px-1.5 py-0.5">{h.promo_code}</code>
+                      {h.filters &&
+                        Object.entries(h.filters).map(([k, v]) => (
+                          <span key={k} className="rounded bg-accent px-1.5 py-0.5">
+                            {k}: {v}
+                          </span>
+                        ))}
                     </div>
                   </div>
                 ))}
                 {history.length === 0 && (
-                  <p className="text-center text-sm text-muted-foreground py-6">No downloads yet.</p>
+                  <p className="py-6 text-center text-sm text-muted-foreground">No downloads yet.</p>
                 )}
               </div>
             </CardContent>
