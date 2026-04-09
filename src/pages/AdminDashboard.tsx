@@ -32,9 +32,11 @@ interface PromoCodeRow {
   language: string;
   id: string;
   code: string;
+  is_used: boolean;
   used_by: string | null;
   used_at: string | null;
   created_at: string;
+  created_by_admin: string | null;
   user_email?: string;
   user_name?: string;
   company_name?: string;
