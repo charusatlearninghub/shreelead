@@ -75,7 +75,7 @@ export default function UserDashboard() {
 
   const loadRequests = async () => {
     const { data } = await supabase
-      .from("lead_requests")
+      .from("lead_requests" as any)
       .select("id, requested_leads, gender, language, status, created_at")
       .order("created_at", { ascending: false });
     setRequests((data as LeadRequestRecord[]) || []);
@@ -197,7 +197,7 @@ export default function UserDashboard() {
     }
 
     setRequesting(true);
-    const { error } = await supabase.from("lead_requests").insert({
+    const { error } = await supabase.from("lead_requests" as any).insert({
       user_id: user.id,
       requested_leads: requestedLeads,
       gender: requestGender,
