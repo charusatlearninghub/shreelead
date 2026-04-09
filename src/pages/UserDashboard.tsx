@@ -75,10 +75,10 @@ export default function UserDashboard() {
 
   const loadRequests = async () => {
     const { data } = await supabase
-      .from("lead_requests")
+      .from("lead_requests" as any)
       .select("id, requested_leads, gender, language, status, created_at")
       .order("created_at", { ascending: false });
-    setRequests((data as LeadRequestRecord[]) || []);
+    setRequests((data as unknown as LeadRequestRecord[]) || []);
   };
 
   const loadAssignedCodes = async () => {
@@ -140,11 +140,11 @@ export default function UserDashboard() {
 
     setLoading(true);
     try {
-      const { data: leads, error } = await supabase.rpc("consume_promo_code_for_download", {
+      const { data: leads, error } = await supabase.rpc("consume_promo_code_for_download" as any, {
         p_promo_code: promoCode.trim(),
       });
 
-      if (error || !leads || leads.length === 0) {
+      if (error || !leads || (leads as any[]).length === 0) {
         toast({
           title: "Download failed",
           description: error?.message || "Could not process this promo code.",
@@ -155,9 +155,10 @@ export default function UserDashboard() {
       }
 
       const csvHeader = "full_name,phone_number,city,state,gender,language\n";
-      const csvRows = leads
+      const leadsArr = leads as any[];
+      const csvRows = leadsArr
         .map(
-          (l) =>
+          (l: any) =>
             `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${l.gender || "-"}","${l.language || "-"}"`
         )
         .join("\n");
@@ -171,7 +172,7 @@ export default function UserDashboard() {
       a.click();
       URL.revokeObjectURL(url);
 
-      toast({ title: "Success!", description: `Downloaded ${leads.length} leads.` });
+      toast({ title: "Success!", description: `Downloaded ${leadsArr.length} leads.` });
       setPromoCode("");
       setPromoDetails(null);
       loadHistory();
@@ -196,7 +197,7 @@ export default function UserDashboard() {
     }
 
     setRequesting(true);
-    const { error } = await supabase.from("lead_requests").insert({
+    const { error } = await supabase.from("lead_requests" as any).insert({
       user_id: user.id,
       requested_leads: requestedLeads,
       gender: requestGender,

@@ -41,6 +41,48 @@ export type Database = {
         }
         Relationships: []
       }
+      lead_requests: {
+        Row: {
+          created_at: string
+          gender: string
+          id: string
+          language: string
+          promo_code_id: string | null
+          requested_leads: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewed_by_admin: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          gender?: string
+          id?: string
+          language?: string
+          promo_code_id?: string | null
+          requested_leads?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewed_by_admin?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          gender?: string
+          id?: string
+          language?: string
+          promo_code_id?: string | null
+          requested_leads?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewed_by_admin?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       leads: {
         Row: {
           city: string
@@ -83,51 +125,6 @@ export type Database = {
         }
         Relationships: []
       }
-      lead_requests: {
-        Row: {
-          created_at: string
-          gender: string
-          id: string
-          language: string
-          promo_code: string | null
-          promo_code_id: string | null
-          requested_leads: number
-          reviewed_at: string | null
-          reviewed_by_admin: string | null
-          reviewed_by: string | null
-          status: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          gender: string
-          id?: string
-          language: string
-          promo_code?: string | null
-          promo_code_id?: string | null
-          requested_leads: number
-          reviewed_at?: string | null
-          reviewed_by_admin?: string | null
-          reviewed_by?: string | null
-          status?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          gender?: string
-          id?: string
-          language?: string
-          promo_code?: string | null
-          promo_code_id?: string | null
-          requested_leads?: number
-          reviewed_at?: string | null
-          reviewed_by_admin?: string | null
-          reviewed_by?: string | null
-          status?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       profiles: {
         Row: {
           company_name: string
@@ -162,8 +159,8 @@ export type Database = {
         Row: {
           assigned_user_id: string | null
           code: string
-          created_by_admin: string | null
           created_at: string
+          created_by_admin: string | null
           gender: string
           id: string
           is_used: boolean
@@ -175,8 +172,8 @@ export type Database = {
         Insert: {
           assigned_user_id?: string | null
           code: string
-          created_by_admin?: string | null
           created_at?: string
+          created_by_admin?: string | null
           gender?: string
           id?: string
           is_used?: boolean
@@ -188,8 +185,8 @@ export type Database = {
         Update: {
           assigned_user_id?: string | null
           code?: string
-          created_by_admin?: string | null
           created_at?: string
+          created_by_admin?: string | null
           gender?: string
           id?: string
           is_used?: boolean
@@ -230,10 +227,21 @@ export type Database = {
           city: string
           full_name: string
           gender: string
+          id: string
           language: string
           phone_number: string
+          sold_at: string | null
+          sold_to: string | null
           state: string
+          status: string
+          uploaded_at: string
         }[]
+        SetofOptions: {
+          from: "*"
+          to: "leads"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       has_role: {
         Args: {
