@@ -115,26 +115,41 @@ export type Database = {
       }
       promo_codes: {
         Row: {
+          assigned_user_id: string | null
           code: string
           created_at: string
+          created_by_admin: string | null
+          gender: string
           id: string
           is_used: boolean
+          language: string
+          total_leads: number
           used_at: string | null
           used_by: string | null
         }
         Insert: {
+          assigned_user_id?: string | null
           code: string
           created_at?: string
+          created_by_admin?: string | null
+          gender?: string
           id?: string
           is_used?: boolean
+          language?: string
+          total_leads?: number
           used_at?: string | null
           used_by?: string | null
         }
         Update: {
+          assigned_user_id?: string | null
           code?: string
           created_at?: string
+          created_by_admin?: string | null
+          gender?: string
           id?: string
           is_used?: boolean
+          language?: string
+          total_leads?: number
           used_at?: string | null
           used_by?: string | null
         }
