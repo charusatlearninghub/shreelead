@@ -39,6 +39,9 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" className="h-9" asChild>
+              <Link to="/about">About</Link>
+            </Button>
+            <Button variant="ghost" size="sm" className="h-9" asChild>
               <Link to="/login">Sign In</Link>
             </Button>
             <Button size="sm" className="h-9" asChild>
@@ -202,6 +205,9 @@ export default function LandingPage() {
             </div>
 
             <div className="flex items-center gap-5 text-sm">
+              <Link to="/about" className="text-muted-foreground hover:text-foreground transition-colors">
+                About
+              </Link>
               <Link to="/login" className="text-muted-foreground hover:text-foreground transition-colors">
                 Login
               </Link>
