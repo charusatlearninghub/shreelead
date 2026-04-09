@@ -28,8 +28,8 @@ interface LeadStats {
 interface PromoCodeRow {
   assigned_user_id: string | null;
   total_leads: number;
-  gender: "male" | "female" | "mix";
-  language: "gujarati" | "hindi" | "mix";
+  gender: string;
+  language: string;
   id: string;
   code: string;
   used_by: string | null;
