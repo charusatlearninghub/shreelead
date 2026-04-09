@@ -100,6 +100,8 @@ export default function AdminDashboard() {
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [uploadSummary, setUploadSummary] = useState<{ total: number; uploaded: number; skipped: number } | null>(null);
+  const [generatingPromo, setGeneratingPromo] = useState(false);
+  const [promoForm, setPromoForm] = useState({ totalLeads: "10", gender: "mix", language: "mix" });
   const [manualLead, setManualLead] = useState<ManualLeadForm>({
     fullName: "",
     phoneNumber: "",
@@ -773,6 +775,85 @@ export default function AdminDashboard() {
           </TabsContent>
 
           <TabsContent value="promos">
+            <Card className="mb-4">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Tag className="h-5 w-5 text-primary" />
+                  Generate Promo Code
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Number of Leads</label>
+                    <Input
+                      type="number"
+                      min="1"
+                      className="h-12 text-base"
+                      value={promoForm.totalLeads}
+                      onChange={(e) => setPromoForm((prev) => ({ ...prev, totalLeads: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Gender</label>
+                    <select
+                      className="h-12 w-full rounded-md border bg-background px-3 text-base"
+                      value={promoForm.gender}
+                      onChange={(e) => setPromoForm((prev) => ({ ...prev, gender: e.target.value }))}
+                    >
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="mix">Mix</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Language</label>
+                    <select
+                      className="h-12 w-full rounded-md border bg-background px-3 text-base"
+                      value={promoForm.language}
+                      onChange={(e) => setPromoForm((prev) => ({ ...prev, language: e.target.value }))}
+                    >
+                      <option value="gujarati">Gujarati</option>
+                      <option value="hindi">Hindi</option>
+                      <option value="mix">Mix</option>
+                    </select>
+                  </div>
+                </div>
+                <Button
+                  className="mt-3 h-12 w-full text-base"
+                  disabled={generatingPromo}
+                  onClick={async () => {
+                    const totalLeads = parseInt(promoForm.totalLeads, 10);
+                    if (!totalLeads || totalLeads < 1) {
+                      toast({ title: "Invalid", description: "Enter a valid lead count.", variant: "destructive" });
+                      return;
+                    }
+                    setGeneratingPromo(true);
+                    const code = "PROMO-" + Math.random().toString(36).substring(2, 10).toUpperCase();
+                    const { error } = await supabase.from("promo_codes").insert({
+                      code,
+                      total_leads: totalLeads,
+                      gender: promoForm.gender,
+                      language: promoForm.language,
+                      created_by_admin: user?.id || null,
+                    });
+                    setGeneratingPromo(false);
+                    if (error) {
+                      toast({ title: "Error", description: error.message, variant: "destructive" });
+                    } else {
+                      await navigator.clipboard.writeText(code);
+                      toast({ title: "Promo Code Created", description: `${code} — copied to clipboard!` });
+                      setPromoForm({ totalLeads: "10", gender: "mix", language: "mix" });
+                      loadData();
+                    }
+                  }}
+                >
+                  <Tag className="mr-2 h-4 w-4" />
+                  {generatingPromo ? "Generating..." : "Generate Promo Code"}
+                </Button>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
