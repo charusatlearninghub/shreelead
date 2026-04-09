@@ -171,12 +171,12 @@ export default function AdminDashboard() {
     setDownloadHistory(enrichedHistory);
 
     const { data: requestData } = await supabase
-      .from("lead_requests")
+      .from("lead_requests" as any)
       .select("id, user_id, requested_leads, gender, language, status, created_at, reviewed_at, promo_code_id")
       .order("created_at", { ascending: false });
 
     const enrichedRequests: LeadRequestRow[] = [];
-    for (const request of (requestData as LeadRequestRow[]) || []) {
+    for (const request of (requestData as unknown as LeadRequestRow[]) || []) {
       const { data: profile } = await supabase
         .from("profiles")
         .select("email, full_name")
@@ -217,7 +217,7 @@ export default function AdminDashboard() {
 
   const handleApproveRequest = async (requestId: string) => {
     setProcessingRequestId(requestId);
-    const { data, error } = await supabase.rpc("approve_lead_request", { p_request_id: requestId });
+    const { data, error } = await supabase.rpc("approve_lead_request" as any, { p_request_id: requestId });
     setProcessingRequestId(null);
 
     if (error) {
@@ -226,7 +226,7 @@ export default function AdminDashboard() {
     }
 
     if (data) {
-      await navigator.clipboard.writeText(data);
+      await navigator.clipboard.writeText(String(data));
       toast({ title: "Request approved", description: `Promo code ${data} generated and copied.` });
     } else {
       toast({ title: "Request approved", description: "Promo code generated successfully." });
@@ -243,13 +243,13 @@ export default function AdminDashboard() {
 
     setProcessingRequestId(requestId);
     const { error } = await supabase
-      .from("lead_requests")
+      .from("lead_requests" as any)
       .update({
         status: "rejected",
         reviewed_by: user.id,
         reviewed_by_admin: user.id,
         reviewed_at: new Date().toISOString(),
-      })
+      } as any)
       .eq("id", requestId)
       .eq("status", "pending");
     setProcessingRequestId(null);
