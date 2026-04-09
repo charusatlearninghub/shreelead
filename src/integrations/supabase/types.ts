@@ -41,6 +41,48 @@ export type Database = {
         }
         Relationships: []
       }
+      lead_requests: {
+        Row: {
+          created_at: string
+          gender: string
+          id: string
+          language: string
+          promo_code_id: string | null
+          requested_leads: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewed_by_admin: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          gender?: string
+          id?: string
+          language?: string
+          promo_code_id?: string | null
+          requested_leads?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewed_by_admin?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          gender?: string
+          id?: string
+          language?: string
+          promo_code_id?: string | null
+          requested_leads?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewed_by_admin?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       leads: {
         Row: {
           city: string
@@ -178,6 +220,29 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      approve_lead_request: { Args: { p_request_id: string }; Returns: string }
+      consume_promo_code_for_download: {
+        Args: { p_promo_code: string }
+        Returns: {
+          city: string
+          full_name: string
+          gender: string
+          id: string
+          language: string
+          phone_number: string
+          sold_at: string | null
+          sold_to: string | null
+          state: string
+          status: string
+          uploaded_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "leads"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
