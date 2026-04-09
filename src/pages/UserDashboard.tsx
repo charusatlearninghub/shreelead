@@ -78,7 +78,7 @@ export default function UserDashboard() {
       .from("lead_requests" as any)
       .select("id, requested_leads, gender, language, status, created_at")
       .order("created_at", { ascending: false });
-    setRequests((data as LeadRequestRecord[]) || []);
+    setRequests((data as unknown as LeadRequestRecord[]) || []);
   };
 
   const loadAssignedCodes = async () => {
