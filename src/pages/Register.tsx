@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { signUp } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { UserPlus, User, Phone, Mail, Lock, Building, Eye, EyeOff } from "lucide-react";
+import { UserPlus, User, Phone, Mail, Lock, Building, Eye, EyeOff, ArrowLeft } from "lucide-react";
 
 export default function Register() {
   const [fullName, setFullName] = useState("");
@@ -39,10 +39,16 @@ export default function Register() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-      <Card className="w-full max-w-md animate-fade-in">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-8">
+      <div className="w-full max-w-md mb-4">
+        <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Home
+        </Link>
+      </div>
+      <Card className="w-full max-w-md animate-fade-in rounded-2xl shadow-lg border-border/60">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-primary">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/25">
             <UserPlus className="h-7 w-7 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">Create Account</CardTitle>
@@ -88,7 +94,7 @@ export default function Register() {
                 <Input id="company" placeholder="Forever, IDP" value={company} onChange={(e) => setCompany(e.target.value)} className="pl-10" required />
               </div>
             </div>
-            <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
+            <Button type="submit" className="w-full h-13 text-base rounded-xl bg-gradient-to-r from-primary to-primary/85 shadow-lg shadow-primary/25" disabled={loading}>
               {loading ? "Creating account..." : "Create Account"}
             </Button>
           </form>

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { signIn } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { LogIn, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { LogIn, Mail, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -36,10 +36,16 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md animate-fade-in">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-8">
+      <div className="w-full max-w-md mb-4">
+        <Link to="/" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-4 w-4" />
+          Back to Home
+        </Link>
+      </div>
+      <Card className="w-full max-w-md animate-fade-in rounded-2xl shadow-lg border-border/60">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-primary">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/25">
             <LogIn className="h-7 w-7 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
@@ -80,7 +86,7 @@ export default function Login() {
                 </button>
               </div>
             </div>
-            <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
+            <Button type="submit" className="w-full h-13 text-base rounded-xl bg-gradient-to-r from-primary to-primary/85 shadow-lg shadow-primary/25" disabled={loading}>
               {loading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
