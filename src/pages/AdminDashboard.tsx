@@ -569,19 +569,19 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b bg-card">
-        <div className="container flex h-16 items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
-              <Shield className="h-5 w-5 text-primary-foreground" />
+      <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur-md">
+        <div className="container flex h-14 items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+              <Shield className="h-4 w-4 text-primary-foreground" />
             </div>
-            <h1 className="text-lg font-semibold">Admin Dashboard</h1>
+            <span className="text-base font-bold">Admin Panel</span>
           </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="sm">
-                <LogOut className="mr-2 h-4 w-4" />
-                Logout
+              <Button variant="ghost" size="sm" className="h-9 gap-1.5 text-sm">
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Logout</span>
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
@@ -598,32 +598,22 @@ export default function AdminDashboard() {
         </div>
       </header>
 
-      <main className="container py-6">
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4 mb-6">
+      <main className="container py-4 md:py-6">
+        <div className="mx-auto max-w-2xl">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-5">
           <StatCard icon={Users} label="Total Users" value={totalUsers} />
           <StatCard icon={Database} label="New Leads" value={stats.newLeads} />
           <StatCard icon={TrendingUp} label="Sold Leads" value={stats.soldLeads} />
-          <StatCard icon={Tag} label="Promos Generated" value={promoCodes.length} />
-          <StatCard icon={CheckCircle} label="Promos Used" value={promoUsedCount} />
+          <StatCard icon={Tag} label="Promos" value={promoCodes.length} />
         </div>
 
         <Tabs defaultValue="leads" className="space-y-4">
-          <TabsList className="grid h-12 w-full grid-cols-5">
-            <TabsTrigger value="leads" className="text-xs md:text-sm">
-              <Upload className="mr-1 h-4 w-4 hidden md:inline" />Leads
-            </TabsTrigger>
-            <TabsTrigger value="promos" className="text-xs md:text-sm">
-              <Tag className="mr-1 h-4 w-4 hidden md:inline" />Promos
-            </TabsTrigger>
-            <TabsTrigger value="requests" className="text-xs md:text-sm">
-              <ClipboardCopy className="mr-1 hidden h-4 w-4 md:inline" />Requests
-            </TabsTrigger>
-            <TabsTrigger value="users" className="text-xs md:text-sm">
-              <Users className="mr-1 h-4 w-4 hidden md:inline" />Users
-            </TabsTrigger>
-            <TabsTrigger value="history" className="text-xs md:text-sm">
-              <History className="mr-1 h-4 w-4 hidden md:inline" />History
-            </TabsTrigger>
+          <TabsList className="w-full overflow-x-auto flex h-11">
+            <TabsTrigger value="leads" className="flex-1 text-xs">Leads</TabsTrigger>
+            <TabsTrigger value="promos" className="flex-1 text-xs">Promos</TabsTrigger>
+            <TabsTrigger value="requests" className="flex-1 text-xs">Requests</TabsTrigger>
+            <TabsTrigger value="users" className="flex-1 text-xs">Users</TabsTrigger>
+            <TabsTrigger value="history" className="flex-1 text-xs">History</TabsTrigger>
           </TabsList>
 
           <TabsContent value="leads">
@@ -1046,6 +1036,7 @@ export default function AdminDashboard() {
             </Card>
           </TabsContent>
         </Tabs>
+        </div>
       </main>
     </div>
   );
@@ -1053,11 +1044,11 @@ export default function AdminDashboard() {
 
 function StatCard({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
   return (
-    <Card className="animate-fade-in">
-      <CardContent className="flex flex-col items-center gap-1 p-4 text-center">
+    <Card className="shadow-sm">
+      <CardContent className="flex flex-col items-center gap-1.5 p-4 text-center">
         <Icon className="h-5 w-5 text-primary" />
         <span className="text-2xl font-bold">{value}</span>
-        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-[11px] text-muted-foreground">{label}</span>
       </CardContent>
     </Card>
   );
