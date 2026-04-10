@@ -45,7 +45,7 @@ export default function Login() {
       </div>
       <Card className="w-full max-w-md animate-fade-in rounded-2xl shadow-lg border-border/60">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-primary">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/25">
             <LogIn className="h-7 w-7 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
@@ -86,7 +86,7 @@ export default function Login() {
                 </button>
               </div>
             </div>
-            <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
+            <Button type="submit" className="w-full h-13 text-base rounded-xl bg-gradient-to-r from-primary to-primary/85 shadow-lg shadow-primary/25" disabled={loading}>
               {loading ? "Signing in..." : "Sign In"}
             </Button>
           </form>

@@ -48,7 +48,7 @@ export default function Register() {
       </div>
       <Card className="w-full max-w-md animate-fade-in rounded-2xl shadow-lg border-border/60">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-primary">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 shadow-lg shadow-primary/25">
             <UserPlus className="h-7 w-7 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">Create Account</CardTitle>
@@ -94,7 +94,7 @@ export default function Register() {
                 <Input id="company" placeholder="Forever, IDP" value={company} onChange={(e) => setCompany(e.target.value)} className="pl-10" required />
               </div>
             </div>
-            <Button type="submit" className="w-full h-12 text-base" disabled={loading}>
+            <Button type="submit" className="w-full h-13 text-base rounded-xl bg-gradient-to-r from-primary to-primary/85 shadow-lg shadow-primary/25" disabled={loading}>
               {loading ? "Creating account..." : "Create Account"}
             </Button>
           </form>
