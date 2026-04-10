@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { signUp } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { UserPlus, User, Phone, Mail, Lock, Building, Eye, EyeOff } from "lucide-react";
+import { UserPlus, User, Phone, Mail, Lock, Building, Eye, EyeOff, ArrowLeft } from "lucide-react";
 
 export default function Register() {
   const [fullName, setFullName] = useState("");
