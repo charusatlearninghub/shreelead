@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import {
   Bell, Download, History, LogOut, Search, Send, Tag, User,
-  Zap, ChevronRight, Clock, CheckCircle2, XCircle, Mail, Building2, Phone
+  Zap, ChevronRight, Clock, CheckCircle2, XCircle, Mail, Building2, Phone, Database
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
