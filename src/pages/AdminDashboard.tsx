@@ -1095,3 +1095,21 @@ function StatCard({ icon: Icon, label, value }: { icon: LucideIcon; label: strin
     </Card>
   );
 }
+
+function BreakdownTile({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
+  return (
+    <div
+      className={
+        "rounded-xl border p-3 text-center " +
+        (highlight ? "bg-primary text-primary-foreground border-primary" : "bg-card")
+      }
+    >
+      <p className={"text-xl font-bold " + (highlight ? "" : "text-foreground")}>
+        {value.toLocaleString()}
+      </p>
+      <p className={"text-[11px] " + (highlight ? "text-primary-foreground/80" : "text-muted-foreground")}>
+        {label}
+      </p>
+    </div>
+  );
+}
