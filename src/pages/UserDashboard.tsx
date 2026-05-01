@@ -357,6 +357,15 @@ export default function UserDashboard() {
           {/* ─── Download Tab ─── */}
           {activeTab === "download" && (
             <>
+              <Card className="border-primary/30 bg-gradient-to-br from-primary/10 to-primary/5 shadow-sm">
+                <CardContent className="flex items-center justify-between p-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Total Available Leads</p>
+                    <p className="text-3xl font-bold text-primary">{totalAvailable.toLocaleString()}</p>
+                  </div>
+                  <Database className="h-10 w-10 text-primary/40" />
+                </CardContent>
+              </Card>
               <Card className="shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-lg">
@@ -452,6 +461,15 @@ export default function UserDashboard() {
           {/* ─── Requests Tab ─── */}
           {activeTab === "requests" && (
             <>
+              <Card className="border-primary/30 bg-gradient-to-br from-primary/10 to-primary/5 shadow-sm">
+                <CardContent className="p-4 space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Available Leads (matching filters)</p>
+                  <p className="text-3xl font-bold text-primary">{filteredAvailable.toLocaleString()}</p>
+                  <p className="text-[11px] text-muted-foreground capitalize">
+                    Gender: {requestGender} · Language: {requestLanguage}
+                  </p>
+                </CardContent>
+              </Card>
               {/* Request Form */}
               <Card className="shadow-sm">
                 <CardHeader className="pb-3">
