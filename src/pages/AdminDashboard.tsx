@@ -25,6 +25,13 @@ interface LeadStats {
   soldLeads: number;
 }
 
+interface LeadBreakdown {
+  male: number;
+  female: number;
+  gujarati: number;
+  hindi: number;
+}
+
 interface PromoCodeRow {
   assigned_user_id: string | null;
   total_leads: number;
@@ -88,6 +95,7 @@ const LEADS_TABLE = "leads" as const;
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState<LeadStats>({ newLeads: 0, soldLeads: 0 });
+  const [breakdown, setBreakdown] = useState<LeadBreakdown>({ male: 0, female: 0, gujarati: 0, hindi: 0 });
   const [totalUsers, setTotalUsers] = useState(0);
   const [promoCodes, setPromoCodes] = useState<PromoCodeRow[]>([]);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
@@ -118,6 +126,23 @@ export default function AdminDashboard() {
     const { count: newCount } = await supabase.from(LEADS_TABLE).select("*", { count: "exact", head: true }).eq("status", "new");
     const { count: soldCount } = await supabase.from(LEADS_TABLE).select("*", { count: "exact", head: true }).eq("status", "sold");
     setStats({ newLeads: newCount || 0, soldLeads: soldCount || 0 });
+
+    // Available-lead breakdown (status = 'new')
+    const countNewBy = async (col: "gender" | "language", val: string) => {
+      const { count } = await supabase
+        .from(LEADS_TABLE)
+        .select("*", { count: "exact", head: true })
+        .eq("status", "new")
+        .eq(col, val);
+      return count || 0;
+    };
+    const [maleC, femaleC, gujC, hinC] = await Promise.all([
+      countNewBy("gender", "male"),
+      countNewBy("gender", "female"),
+      countNewBy("language", "gujarati"),
+      countNewBy("language", "hindi"),
+    ]);
+    setBreakdown({ male: maleC, female: femaleC, gujarati: gujC, hindi: hinC });
 
     const { data: profileData, count: userCount } = await supabase
       .from("profiles")
