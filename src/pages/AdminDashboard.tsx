@@ -632,6 +632,23 @@ export default function AdminDashboard() {
           <StatCard icon={Tag} label="Promos" value={promoCodes.length} />
         </div>
 
+        <Card className="mb-5 border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold text-muted-foreground">
+              Available Leads (status = new)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <BreakdownTile label="Total" value={stats.newLeads} highlight />
+              <BreakdownTile label="Male" value={breakdown.male} />
+              <BreakdownTile label="Female" value={breakdown.female} />
+              <BreakdownTile label="Gujarati" value={breakdown.gujarati} />
+              <BreakdownTile label="Hindi" value={breakdown.hindi} />
+            </div>
+          </CardContent>
+        </Card>
+
         <Tabs defaultValue="leads" className="space-y-4">
           <TabsList className="w-full overflow-x-auto flex h-11">
             <TabsTrigger value="leads" className="flex-1 text-xs">Leads</TabsTrigger>
