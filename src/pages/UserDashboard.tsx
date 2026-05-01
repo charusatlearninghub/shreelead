@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import MobileBottomNav, { type UserTab } from "@/components/MobileBottomNav";
 import { cn } from "@/lib/utils";
+import { downloadCsv, buildLeadsFilename } from "@/lib/downloadFile";
 
 interface DownloadRecord {
   id: string;
@@ -69,6 +70,8 @@ export default function UserDashboard() {
   const [history, setHistory] = useState<DownloadRecord[]>([]);
   const [requests, setRequests] = useState<LeadRequestRecord[]>([]);
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [totalAvailable, setTotalAvailable] = useState(0);
+  const [filteredAvailable, setFilteredAvailable] = useState(0);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -93,12 +96,34 @@ export default function UserDashboard() {
     if (data) setProfile(data);
   };
 
+  const loadTotalAvailable = async () => {
+    const { count } = await supabase
+      .from("leads")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "new");
+    setTotalAvailable(count || 0);
+  };
+
   useEffect(() => {
     loadHistory();
     loadRequests();
     loadAssignedCodes();
     loadProfile();
+    loadTotalAvailable();
   }, []);
+
+  // Live filtered count for the Request Leads form
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let q = supabase.from("leads").select("*", { count: "exact", head: true }).eq("status", "new");
+      if (requestGender !== "mix") q = q.eq("gender", requestGender);
+      if (requestLanguage !== "mix") q = q.eq("language", requestLanguage);
+      const { count } = await q;
+      if (!cancelled) setFilteredAvailable(count || 0);
+    })();
+    return () => { cancelled = true; };
+  }, [requestGender, requestLanguage, activeTab]);
 
   const fetchPromoCodeDetails = async () => {
     const trimmedCode = promoCode.trim();
@@ -140,18 +165,26 @@ export default function UserDashboard() {
       const csvHeader = "full_name,phone_number,city,state,gender,language\n";
       const leadsArr = leads as any[];
       const csvRows = leadsArr.map((l: any) => `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${l.gender || "-"}","${l.language || "-"}"`).join("\n");
-      const blob = new Blob([csvHeader + csvRows], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `leads_${Date.now()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: "Success!", description: `Downloaded ${leadsArr.length} leads.` });
+      toast({ title: "Downloading leads...", description: "Saving CSV file." });
+      try {
+        const { savedTo, native } = await downloadCsv(buildLeadsFilename(), csvHeader + csvRows);
+        toast({
+          title: "Download complete",
+          description: native
+            ? `${leadsArr.length} leads saved to ${savedTo}`
+            : `Downloaded ${leadsArr.length} leads (${savedTo})`,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Could not save file.";
+        toast({ title: "Save failed", description: msg, variant: "destructive" });
+        setLoading(false);
+        return;
+      }
       setPromoCode("");
       setPromoDetails(null);
       loadHistory();
       loadAssignedCodes();
+      loadTotalAvailable();
     } catch {
       toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
     }
