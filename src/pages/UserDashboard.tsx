@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import {
   Bell, Download, History, LogOut, Search, Send, Tag, User,
-  Zap, ChevronRight, Clock, CheckCircle2, XCircle, Mail, Building2, Phone
+  Zap, ChevronRight, Clock, CheckCircle2, XCircle, Mail, Building2, Phone, Database
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import MobileBottomNav, { type UserTab } from "@/components/MobileBottomNav";
 import { cn } from "@/lib/utils";
+import { downloadCsv, buildLeadsFilename } from "@/lib/downloadFile";
 
 interface DownloadRecord {
   id: string;
@@ -69,6 +70,8 @@ export default function UserDashboard() {
   const [history, setHistory] = useState<DownloadRecord[]>([]);
   const [requests, setRequests] = useState<LeadRequestRecord[]>([]);
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [totalAvailable, setTotalAvailable] = useState(0);
+  const [filteredAvailable, setFilteredAvailable] = useState(0);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -93,12 +96,34 @@ export default function UserDashboard() {
     if (data) setProfile(data);
   };
 
+  const loadTotalAvailable = async () => {
+    const { count } = await supabase
+      .from("leads")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "new");
+    setTotalAvailable(count || 0);
+  };
+
   useEffect(() => {
     loadHistory();
     loadRequests();
     loadAssignedCodes();
     loadProfile();
+    loadTotalAvailable();
   }, []);
+
+  // Live filtered count for the Request Leads form
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let q = supabase.from("leads").select("*", { count: "exact", head: true }).eq("status", "new");
+      if (requestGender !== "mix") q = q.eq("gender", requestGender);
+      if (requestLanguage !== "mix") q = q.eq("language", requestLanguage);
+      const { count } = await q;
+      if (!cancelled) setFilteredAvailable(count || 0);
+    })();
+    return () => { cancelled = true; };
+  }, [requestGender, requestLanguage, activeTab]);
 
   const fetchPromoCodeDetails = async () => {
     const trimmedCode = promoCode.trim();
@@ -140,18 +165,26 @@ export default function UserDashboard() {
       const csvHeader = "full_name,phone_number,city,state,gender,language\n";
       const leadsArr = leads as any[];
       const csvRows = leadsArr.map((l: any) => `"${l.full_name}","${l.phone_number}","${l.city}","${l.state}","${l.gender || "-"}","${l.language || "-"}"`).join("\n");
-      const blob = new Blob([csvHeader + csvRows], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `leads_${Date.now()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast({ title: "Success!", description: `Downloaded ${leadsArr.length} leads.` });
+      toast({ title: "Downloading leads...", description: "Saving CSV file." });
+      try {
+        const { savedTo, native } = await downloadCsv(buildLeadsFilename(), csvHeader + csvRows);
+        toast({
+          title: "Download complete",
+          description: native
+            ? `${leadsArr.length} leads saved to ${savedTo}`
+            : `Downloaded ${leadsArr.length} leads (${savedTo})`,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Could not save file.";
+        toast({ title: "Save failed", description: msg, variant: "destructive" });
+        setLoading(false);
+        return;
+      }
       setPromoCode("");
       setPromoDetails(null);
       loadHistory();
       loadAssignedCodes();
+      loadTotalAvailable();
     } catch {
       toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
     }
@@ -324,6 +357,15 @@ export default function UserDashboard() {
           {/* ─── Download Tab ─── */}
           {activeTab === "download" && (
             <>
+              <Card className="border-primary/30 bg-gradient-to-br from-primary/10 to-primary/5 shadow-sm">
+                <CardContent className="flex items-center justify-between p-4">
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Total Available Leads</p>
+                    <p className="text-3xl font-bold text-primary">{totalAvailable.toLocaleString()}</p>
+                  </div>
+                  <Database className="h-10 w-10 text-primary/40" />
+                </CardContent>
+              </Card>
               <Card className="shadow-sm">
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-lg">
@@ -419,6 +461,15 @@ export default function UserDashboard() {
           {/* ─── Requests Tab ─── */}
           {activeTab === "requests" && (
             <>
+              <Card className="border-primary/30 bg-gradient-to-br from-primary/10 to-primary/5 shadow-sm">
+                <CardContent className="p-4 space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">Available Leads (matching filters)</p>
+                  <p className="text-3xl font-bold text-primary">{filteredAvailable.toLocaleString()}</p>
+                  <p className="text-[11px] text-muted-foreground capitalize">
+                    Gender: {requestGender} · Language: {requestLanguage}
+                  </p>
+                </CardContent>
+              </Card>
               {/* Request Form */}
               <Card className="shadow-sm">
                 <CardHeader className="pb-3">
